@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habit Tracker </title>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- FullCalendar -->
+    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+
+    <link rel="stylesheet" href="styles.css">
+
+    <link rel="icon" href="h.png" type="image/x-icon">
+</head>
+
+<body>
+
+
+<div class="sidebar">
+
+    <h2>📊 Habit Tracker</h2>
+
+    <button class="menu active" onclick="mostrar('inicio', this)">🏠 Inicio</button>
+
+    <button class="menu" onclick="mostrar('calendario',this)">📅 Calendario</button>
+
+    <button class="menu" onclick="mostrar('estadisticas',this)">📈 Estadísticas</button>
+
+    <button class="menu" onclick="mostrar('habitos',this)">✅ Hábitos</button>
+
+    <button class="menu" onclick="mostrar('configuracion',this)">⚙ Configuración</button>
+
+</div>
+
+<div class="contenido">
+
+<!-- =================== INICIO =================== -->
+
+<section id="inicio" class="pagina">
+
+<h1>Resumen del día</h1>
+
+<div class="cards">
+
+<div class="card">
+<h3>Porcentaje</h3>
+<h1 id="porcentajeHoy">0%</h1>
+</div>
+
+<div class="card">
+<h3>Hábitos</h3>
+<h1 id="contadorHabitos">0 / 0</h1>
+</div>
+
+<div class="card">
+<h3>Racha</h3>
+<h1 id="racha">🔥0</h1>
+</div>
+
+<div class="card">
+<h3>Mejor racha</h3>
+<h1 id="mejorRacha">0</h1>
+</div>
+
+</div>
+
+<h2>Hábitos de hoy</h2>
+
+<div id="listaHabitos"></div>
+<!-- Notas del día (ponlo cerca del botón Guardar) -->
+    <div class="notas-dia">
+        <label for="notaDia">Nota del día (opcional)</label>
+        <textarea id="notaDia" placeholder="¿Cómo te fue hoy?" rows="2"></textarea>
+    </div>
+
+<button id="guardar">Guardar progreso</button>
+
+</section>
+
+<!-- ================= CALENDARIO ================= -->
+
+<section id="calendario" class="pagina oculto">
+
+<h1>Calendario</h1>
+
+<div class="miCalendario">
+
+    <div class="controlesCalendario">
+
+        <button class="flechaCalendario" onclick="mesAnterior()"> ‹ </button>
+        
+        <h2 id="mesActual"></h2>
+
+        <button class="flechaCalendario" onclick="mesSiguiente()"> › </button>
+
+    </div>
+
+
+    <div id="calendar"></div>
+
+</div>
+
+</section>
+
+<!-- ============== ESTADISTICAS ================= -->
+
+<section id="estadisticas" class="pagina oculto">
+
+<h1>Estadísticas</h1>
+
+<div class="tabs">
+
+<!--<button onclick="cambiarGrafica('dia')">Dia</button>-->
+
+ <button onclick="cambiarGrafica('semana')">Semana</button> 
+
+<button onclick="cambiarGrafica('mes')">Mes</button>
+
+<button onclick="cambiarGrafica('año')">Año</button>
+
+</div>
+
+<canvas id="graficaGeneral"></canvas>
+
+<hr>
+
+<h2>Estadísticas por hábito</h2>
+
+<select id="selectorHabito">
+
+<option value="">Selecciona un hábito</option>
+
+</select>
+
+<canvas id="graficaHabito"></canvas>
+
+<div class="estadisticasHabito">
+
+<p>Completado:
+<span id="totalHabito">0</span></p>
+
+<p>Porcentaje:
+<span id="porcentajeHabito">0%</span></p>
+
+<p>Mejor racha:
+<span id="rachaHabito">0</span></p>
+
+</div>
+
+</section>
+
+<!-- ================= HABITOS ================= -->
+
+<section id="habitos" class="pagina oculto">
+
+<h1>Administrar hábitos</h1>
+
+<input
+type="text"
+id="nuevoHabito"
+placeholder="Nuevo hábito">
+
+
+<div class="dias-selector" id="diasSelector">
+  <button type="button" class="dia-btn" data-dia="todos">Todos</button>
+  <button type="button" class="dia-btn" data-dia="lunes">Lun</button>
+  <button type="button" class="dia-btn" data-dia="martes">Mar</button>
+  <button type="button" class="dia-btn" data-dia="miercoles">Mié</button>
+  <button type="button" class="dia-btn" data-dia="jueves">Jue</button>
+  <button type="button" class="dia-btn" data-dia="viernes">Vie</button>
+  <button type="button" class="dia-btn" data-dia="sabado">Sáb</button>
+  <button type="button" class="dia-btn" data-dia="domingo">Dom</button>
+</div>
+
+
+<button id="agregarHabito">
+Agregar hábito
+</button>
+
+<hr>
+
+<div id="listaEditar"></div>
+
+</section>
+
+<!-- =============== CONFIGURACION ================= -->
+
+<section id="configuracion" class="pagina oculto">
+  <h1>Configuración</h1>
+
+  <div class="config-section">
+    <h2>Apariencia</h2>
+    <p class="config-desc">Cambia el tema de la aplicación</p>
+    <button id="modo">Cambiar a modo claro/oscuro</button>
+  </div>
+
+  <div class="config-section">
+    <h2>Datos</h2>
+    <p class="config-desc">Respalda o restaura tu información</p>
+    <button id="exportar">Exportar respaldo</button>
+    <button id="importar">Importar respaldo</button>
+    <input type="file" id="archivoImportar" accept=".json" hidden>
+  </div>
+
+  <div class="config-section">
+    <h2>Zona de peligro</h2>
+    <p class="config-desc">Esta acción no se puede deshacer</p>
+    <button id="reiniciar" class="btn-peligro">Borrar todos los datos</button>
+  </div>
+
+  <div class="config-section">
+    <h2>Acerca de</h2>
+    <p class="config-desc">Habit Tracker Pro v1.0<br>Tus datos se guardan solo en tu dispositivo.</p>
+  </div>
+</section>
+
+
+<!-- Toast container (si no lo tienes) -->
+<div id="toast-container"></div>
+
+<!-- Modal detalle del día -->
+<div id="modalDetalle" class="modal oculto">
+  <div class="modal-contenido">
+    <div class="detalle-header">
+      <h3 id="detalleFecha">📅 Fecha</h3>
+      <button class="cerrar-modal" onclick="cerrarDetalle()">✕</button>
+    </div>
+
+    <div class="detalle-porcentaje">
+      <span id="detallePorcentaje">0%</span>
+    </div>
+
+    <div id="detalleHabitos" class="detalle-lista"></div>
+
+    <div id="detalleNota" class="detalle-nota oculto"></div>
+  </div>
+</div>
+
+<!-- Modal de confirmación -->
+<div id="modalConfirm" class="modal oculto">
+  <div class="modal-contenido">
+    <p id="modalConfirmTexto">¿Estás seguro?</p>
+    <div class="modal-botones">
+      <button id="modalCancelar" class="btn-secundario">Cancelar</button>
+      <button id="modalAceptar" class="btn-peligro">Aceptar</button>
+    </div>
+  </div>
+</div>
+
+<div id="modalEditar" class="modal oculto">
+  <div class="modal-contenido">
+    <h3>Editar hábito</h3>
+    
+    <input type="text" id="editarNombre" placeholder="Nombre del hábito">
+    
+    <div class="dias-selector" id="editarDiasSelector">
+      <button type="button" class="dia-btn edit-dia" data-dia="todos">Todos</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="lunes">Lun</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="martes">Mar</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="miercoles">Mié</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="jueves">Jue</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="viernes">Vie</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="sabado">Sáb</button>
+      <button type="button" class="dia-btn edit-dia" data-dia="domingo">Dom</button>
+    </div>
+
+    <div class="modal-botones">
+      <button type="button" id="cancelarEditar" class="btn-secundario">Cancelar</button>
+      <button type="button" id="guardarEditar" class="btn-primario">Guardar</button>
+    </div>
+  </div>
+</div>
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>
