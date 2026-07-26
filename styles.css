@@ -723,7 +723,8 @@ button{
 #exportar,
 #importar,
 #reiniciar,
-#modo{
+#modo,
+#guardarNombre{
 
     background:#2563eb;
 
@@ -2213,6 +2214,155 @@ body.claro .dia.rojo {
   color: #7f1d1d !important;
   border-color: #ef4444 !important;
 }
+
+
+/* ===== Config sections ===== */
+.config-section {
+  background: var(--card, #1e293b);
+  border: 1px solid var(--border, #334155);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.config-section h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+
+.config-desc {
+  opacity: 0.7;
+  font-size: 14px;
+  margin-bottom: 14px;
+  line-height: 1.4;
+}
+
+.opciones-racha {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-racha {
+  padding: 10px 18px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border, #334155);
+  background: var(--bg, #0f172a);
+  color: var(--text, #fff);
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.btn-racha.activo {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: white;
+}
+
+.btn-racha:hover {
+  border-color: #3b82f6;
+}
+
+.saludo {
+  margin: 0 0 8px;
+  font-size: 25px;
+  opacity: 0.85;
+}
+
+#inputNombre {
+  width: 100%;
+  max-width: 280px;
+  margin-bottom: 10px;
+}
+
+/* ===== MENÚ FIJO SOLO EN PC / LAPTOP ===== */
+@media (min-width: 901px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+}
+
+/* ===== MÓVIL ===== */
+
+@media (max-width: 900px) {
+
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 14px 12px;
+    border-right: none;
+    border-bottom: 1px solid var(--border, #334155);
+  }
+
+  /* Título centrado y más grande */
+  .sidebar h2 {
+    width: 100%;
+    margin: 0 0 10px;
+    font-size: 35px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  /* Inicio: fila completa y centrado */
+  .sidebar .menu:first-of-type {
+    flex: 1 1 100%;
+    text-align: center;
+    justify-content: center;
+    font-size: 20px;
+    padding: 12px;
+  }
+
+  /* Resto de menús en 2 columnas */
+  .sidebar .menu:not(:first-of-type) {
+    flex: 1 1 calc(50% - 8px);
+    text-align: center;
+    justify-content: center;
+    padding: 10px 12px;
+    font-size: 20px;
+  }
+}
+
+.contenido {
+    padding: 12px 14px 80px; /* espacio para el botón flotante */
+  }
+
+  /* Botón ir arriba (solo móvil) */
+  #btnIrArriba {
+    display: none;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 999;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: #2563eb;
+    color: white;
+    font-size: 20px;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+    cursor: pointer;
+  }
+
+  #btnIrArriba:active {
+    transform: scale(0.94);
+  }
+
+/* Oculto en PC */
+@media (min-width: 901px) {
+  #btnIrArriba {
+    display: none !important;
+  }
+}
+
 
 /*==================================================
 =            FIN DEL CSS

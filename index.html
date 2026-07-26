@@ -25,7 +25,7 @@
 
 <div class="sidebar">
 
-    <h2>📊 Habit Tracker</h2>
+    <h2> Habit Tracker</h2>
 
     <button class="menu active" onclick="mostrar('inicio', this)">🏠 Inicio</button>
 
@@ -45,6 +45,7 @@
 
 <section id="inicio" class="pagina">
 
+<p id="saludo" class="saludo"></p> 
 <h1>Resumen del día</h1>
 
 <div class="cards">
@@ -193,32 +194,76 @@ Agregar hábito
 <!-- =============== CONFIGURACION ================= -->
 
 <section id="configuracion" class="pagina oculto">
+
   <h1>Configuración</h1>
 
+  <!-- Nombre / saludo -->
   <div class="config-section">
-    <h2>Apariencia</h2>
-    <p class="config-desc">Cambia el tema de la aplicación</p>
-    <button id="modo">Cambiar a modo claro/oscuro</button>
+    <h2>Tu nombre</h2>
+    <p class="config-desc">Se usa en el saludo de la pantalla de inicio</p>
+    <input type="text" id="inputNombre" placeholder="Ej: Hector" maxlength="20">
+    <button type="button" id="guardarNombre">Guardar nombre</button>
   </div>
 
+  <!-- Apariencia -->
+  <div class="config-section">
+    <h2>Apariencia</h2>
+    <p class="config-desc">Cambia entre modo oscuro y claro</p>
+    <button type="button" id="modo">Cambiar a modo claro/oscuro</button>
+  </div>
+
+  <!-- Racha -->
+  <div class="config-section">
+    <h2>Racha</h2>
+    <p class="config-desc">Porcentaje mínimo del día para sumar a la racha (por defecto 80%)</p>
+    <div class="opciones-racha">
+      <button type="button" class="btn-racha" data-min="80">80%</button>
+      <button type="button" class="btn-racha" data-min="100">100%</button>
+    </div>
+  </div>
+
+  <!-- Notificaciones -->
+
+  <div class="config-section">
+    <h2>Recordatorio diario</h2>
+    <p class="config-desc">Te avisa a la hora que elijas para marcar tus hábitos</p>
+
+    <label style="font-size:14px; opacity:0.8">Hora</label>
+    <input type="time" id="horaRecordatorio" class="btn-secundario" value="21:00" style="margin:8px 0 12px; display:block;">
+
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" id="activarNotis" class="btn-primario">Activar recordatorios</button>
+        <button type="button" id="probarNoti" class="btn-secundario">Probar notificación</button>
+    </div>
+
+    <p id="estadoNotis" class="config-desc" style="margin-top:12px; margin-bottom:0;"></p>
+    </div>
+
+  <!-- Datos -->
   <div class="config-section">
     <h2>Datos</h2>
     <p class="config-desc">Respalda o restaura tu información</p>
-    <button id="exportar">Exportar respaldo</button>
-    <button id="importar">Importar respaldo</button>
+    <button type="button" id="exportar">Exportar respaldo</button>
+    <button type="button" id="importar">Importar respaldo</button>
     <input type="file" id="archivoImportar" accept=".json" hidden>
   </div>
-
+  
+  <!-- Zona de peligro -->
   <div class="config-section">
     <h2>Zona de peligro</h2>
-    <p class="config-desc">Esta acción no se puede deshacer</p>
-    <button id="reiniciar" class="btn-peligro">Borrar todos los datos</button>
+    <p class="config-desc">Esta acción borra todos tus hábitos e historial</p>
+    <button type="button" id="reiniciar">Borrar todos los datos</button>
   </div>
 
+  <!-- Acerca de -->
   <div class="config-section">
     <h2>Acerca de</h2>
-    <p class="config-desc">Habit Tracker Pro v1.0<br>Tus datos se guardan solo en tu dispositivo.</p>
+    <p class="config-desc">
+      Habit Tracker Pro v1.0<br>
+      Tus datos se guardan solo en este dispositivo.
+    </p>
   </div>
+
 </section>
 
 
@@ -278,6 +323,7 @@ Agregar hábito
   </div>
 </div>
 
+    <button type="button" id="btnIrArriba" title="Ir al menú">↑</button>
     <script src="script.js"></script>
 
 </body>

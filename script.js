@@ -16,6 +16,10 @@ const app = {
         actual: 0,
         mejor: 0,
         ultimaFecha: null
+    },
+    config: {
+        nombre: "",
+        rachaMinima: 80
     }
 };
 
@@ -96,6 +100,15 @@ function cargarDatos() {
             mejor: 0,
             ultimaFecha: null
         };
+    }
+
+    app.config = Object.assign(
+    { nombre: "", rachaMinima: 80 },
+    datos?.config || {}
+    );
+
+    if (app.config.rachaMinima !== 80 && app.config.rachaMinima !== 100) {
+        app.config.rachaMinima = 80;
     }
 
     // Migrar hábitos antiguos
@@ -224,6 +237,11 @@ function crearHabitos() {
         const checkbox = div.querySelector("input");
         checkbox.addEventListener("change", () => {
             div.classList.toggle("completado", checkbox.checked);
+
+            // Vibración corta en móvil
+            if (checkbox.checked && navigator.vibrate) {
+                navigator.vibrate(25);
+            }
         });
 
         elementos.listaHabitos.appendChild(div);
@@ -398,6 +416,8 @@ document.getElementById("agregarHabito")?.addEventListener("click", () => {
         return;
     }
 
+    
+
     const diasSeleccionados = obtenerDiasSeleccionados();
     if (diasSeleccionados.length === 0) {
         mostrarToast("Selecciona al menos un día", "warning");
@@ -498,6 +518,8 @@ function mostrar(id, boton) {
 
     document.querySelectorAll(".menu").forEach(b => b.classList.remove("active"));
     boton.classList.add("active");
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 
@@ -634,7 +656,9 @@ function actualizarRacha() {
     const hoy = obtenerHoy();
     if (!hoy) return;
 
-    if (hoy.porcentaje < 100) {
+    const minimo = app.config?.rachaMinima ?? 80;
+
+    if (hoy.porcentaje < minimo) {
         app.racha.actual = 0;
         app.racha.ultimaFecha = null;
         return;
@@ -1172,6 +1196,235 @@ botonModo?.addEventListener("click", () => {
         analizarHabito(app.habitos[index].nombre);
     }
     mostrarToast(modo === "claro" ? "Modo claro activado" : "Modo oscuro activado", "info");
+});
+
+//==================================================
+// CONFIG: NOMBRE + RACHA MÍNIMA
+//==================================================
+
+function actualizarSaludo() {
+    const el = document.getElementById("saludo");
+    if (!el) return;
+
+    const nombre = (app.config?.nombre || "").trim();
+    const hora = new Date().getHours();
+    const base = hora < 12 ? "Buenos días" : hora < 19 ? "Buenas tardes" : "Buenas noches";
+
+    el.textContent = nombre ? `${base}, ${nombre} 👋` : `${base} 👋`;
+}
+
+function actualizarBotonesRacha() {
+    const actual = app.config?.rachaMinima ?? 80;
+    document.querySelectorAll(".btn-racha").forEach(btn => {
+        btn.classList.toggle("activo", Number(btn.dataset.min) === actual);
+    });
+}
+
+function inicializarConfigUI() {
+    // Nombre
+    const inputNombre = document.getElementById("inputNombre");
+    if (inputNombre) inputNombre.value = app.config?.nombre || "";
+
+    document.getElementById("guardarNombre")?.addEventListener("click", () => {
+        const nombre = document.getElementById("inputNombre")?.value.trim() || "";
+        app.config.nombre = nombre;
+        guardarDatos();
+        actualizarSaludo();
+        mostrarToast(nombre ? `Hola, ${nombre}` : "Nombre borrado", "success");
+    });
+
+    // Racha mínima
+    document.querySelectorAll(".btn-racha").forEach(btn => {
+        btn.addEventListener("click", () => {
+            app.config.rachaMinima = Number(btn.dataset.min);
+            guardarDatos();
+            actualizarBotonesRacha();
+            mostrarToast(`Racha mínima: ${app.config.rachaMinima}%`, "success");
+        });
+    });
+
+    actualizarBotonesRacha();
+    actualizarSaludo();
+}
+
+// Llamar cuando la app ya cargó datos
+inicializarConfigUI();
+
+//==================================================
+// NOTIFICACIONES / RECORDATORIO DIARIO
+//==================================================
+
+function actualizarUINotis() {
+    const btn = document.getElementById("activarNotis");
+    const el = document.getElementById("estadoNotis");
+    const inputHora = document.getElementById("horaRecordatorio");
+
+    const activas = localStorage.getItem("notisActivas") === "1";
+    const hora = localStorage.getItem("horaRecordatorio") || "21:00";
+
+    if (inputHora) inputHora.value = hora;
+
+    if (btn) {
+        if (activas && Notification.permission === "granted") {
+            btn.textContent = "Desactivar recordatorios";
+            btn.classList.add("btn-peligro");
+        } else {
+            btn.textContent = "Activar recordatorios";
+            btn.classList.remove("btn-peligro");
+        }
+    }
+
+    if (!el) return;
+
+    if (!("Notification" in window)) {
+        el.textContent = "Este navegador no soporta notificaciones.";
+        return;
+    }
+
+    if (Notification.permission === "granted" && activas) {
+        el.textContent = `Recordatorios activos a las ${hora}`;
+    } else if (Notification.permission === "denied") {
+        el.textContent = "Permiso denegado. Actívalo en la configuración del navegador.";
+    } else {
+        el.textContent = "Recordatorios desactivados";
+    }
+}
+
+function pedirPermisoNotificaciones() {
+    if (!("Notification" in window)) {
+        mostrarToast("Tu navegador no soporta notificaciones", "warning");
+        return Promise.resolve(false);
+    }
+    if (Notification.permission === "granted") return Promise.resolve(true);
+    if (Notification.permission === "denied") {
+        mostrarToast("Permiso bloqueado. Actívalo en el navegador", "warning");
+        return Promise.resolve(false);
+    }
+    return Notification.requestPermission().then(p => p === "granted");
+}
+
+function enviarNotificacion(titulo, cuerpo) {
+    if (Notification.permission !== "granted") return;
+
+    const n = new Notification(titulo, {
+        body: cuerpo,
+        icon: "h.png",
+        badge: "h.png",
+        tag: "habit-reminder"
+    });
+
+    n.onclick = () => {
+        window.focus();
+        n.close();
+    };
+}
+
+function programarRecordatorio() {
+    if (window._habitNotiInterval) clearInterval(window._habitNotiInterval);
+
+    const activas = localStorage.getItem("notisActivas") === "1";
+    if (!activas || Notification.permission !== "granted") return;
+
+    window._habitNotiInterval = setInterval(() => {
+        const horaConfig = localStorage.getItem("horaRecordatorio") || "21:00";
+        const ahora = new Date();
+        const actual = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
+        const hoy = fechaActual();
+        const yaEnvio = localStorage.getItem("ultimaNoti") === hoy;
+
+        // Solo si es la hora, no se envió hoy, Y no hay registro guardado del día
+        const yaGuardoHoy = !!obtenerHoy();
+
+        if (actual === horaConfig && !yaEnvio && !yaGuardoHoy) {
+            const pendientes = obtenerHabitosHoy().length;
+            enviarNotificacion(
+                "Habit Tracker",
+                pendientes > 0
+                    ? `Aún no guardaste el día. Tienes ${pendientes} hábito(s) pendiente(s).`
+                    : "Aún no registraste tu progreso de hoy"
+            );
+            localStorage.setItem("ultimaNoti", hoy);
+        }
+    }, 30000);
+}
+
+document.getElementById("activarNotis")?.addEventListener("click", async () => {
+    const activas = localStorage.getItem("notisActivas") === "1";
+
+    // Si ya están activas → desactivar
+    if (activas && Notification.permission === "granted") {
+        localStorage.setItem("notisActivas", "0");
+        if (window._habitNotiInterval) clearInterval(window._habitNotiInterval);
+        actualizarUINotis();
+        mostrarToast("Recordatorios desactivados", "info");
+        return;
+    }
+
+    // Activar
+    const ok = await pedirPermisoNotificaciones();
+    if (!ok) {
+        actualizarUINotis();
+        return;
+    }
+
+    const hora = document.getElementById("horaRecordatorio")?.value || "21:00";
+    localStorage.setItem("horaRecordatorio", hora);
+    localStorage.setItem("notisActivas", "1");
+    programarRecordatorio();
+    actualizarUINotis();
+    mostrarToast(`Recordatorios activados a las ${hora}`, "success");
+});
+
+document.getElementById("probarNoti")?.addEventListener("click", async () => {
+    const ok = await pedirPermisoNotificaciones();
+    if (!ok) return;
+    enviarNotificacion("Habit Tracker", "Así se verá tu recordatorio diario 💪");
+    mostrarToast("Notificación de prueba enviada", "info");
+});
+
+document.getElementById("horaRecordatorio")?.addEventListener("change", (e) => {
+    localStorage.setItem("horaRecordatorio", e.target.value);
+    if (localStorage.getItem("notisActivas") === "1") {
+        programarRecordatorio();
+        actualizarUINotis();
+        mostrarToast(`Hora actualizada: ${e.target.value}`, "success");
+    }
+});
+
+// Al cargar
+actualizarUINotis();
+programarRecordatorio();
+
+
+document.getElementById("btnIrArriba")?.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+});
+
+const btnArriba = document.getElementById("btnIrArriba");
+const sidebar = document.querySelector(".sidebar");
+
+function actualizarBotonArriba() {
+    if (!btnArriba || !sidebar) return;
+
+    // Solo en móvil
+    if (window.innerWidth > 900) {
+        btnArriba.style.display = "none";
+        return;
+    }
+
+    const rect = sidebar.getBoundingClientRect();
+    // Si el menú ya salió por arriba de la pantalla
+    const menuNoVisible = rect.bottom <= 0;
+
+    btnArriba.style.display = menuNoVisible ? "flex" : "none";
+}
+
+window.addEventListener("scroll", actualizarBotonArriba, { passive: true });
+window.addEventListener("resize", actualizarBotonArriba);
+actualizarBotonArriba();
+
+btnArriba?.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
 //==================================================
