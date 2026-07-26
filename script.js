@@ -1252,6 +1252,7 @@ inicializarConfigUI();
 
 //==================================================
 // NOTIFICACIONES / RECORDATORIO DIARIO
+// (mejor compatibilidad móvil + PC)
 //==================================================
 
 function actualizarUINotis() {
@@ -1284,7 +1285,7 @@ function actualizarUINotis() {
     if (Notification.permission === "granted" && activas) {
         el.textContent = `Recordatorios activos a las ${hora}`;
     } else if (Notification.permission === "denied") {
-        el.textContent = "Permiso denegado. Actívalo en la configuración del navegador.";
+        el.textContent = "Permiso denegado. Actívalo en la configuración del navegador / sitio.";
     } else {
         el.textContent = "Recordatorios desactivados";
     }
@@ -1295,72 +1296,128 @@ function pedirPermisoNotificaciones() {
         mostrarToast("Tu navegador no soporta notificaciones", "warning");
         return Promise.resolve(false);
     }
-    if (Notification.permission === "granted") return Promise.resolve(true);
+
+    if (Notification.permission === "granted") {
+        return Promise.resolve(true);
+    }
+
     if (Notification.permission === "denied") {
         mostrarToast("Permiso bloqueado. Actívalo en el navegador", "warning");
         return Promise.resolve(false);
     }
-    return Notification.requestPermission().then(p => p === "granted");
+
+    // Tiene que ejecutarse dentro de un clic del usuario (móvil)
+    return Notification.requestPermission().then((p) => p === "granted");
 }
 
-function enviarNotificacion(titulo, cuerpo) {
+function iconoNotificacion() {
+    // URL absoluta: en móvil falla menos que "h.png"
+    try {
+        return new URL("h.png", window.location.href).href;
+    } catch {
+        return "h.png";
+    }
+}
+
+async function enviarNotificacion(titulo, cuerpo) {
+    if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
-    const n = new Notification(titulo, {
+    const opciones = {
         body: cuerpo,
-        icon: "h.png",
-        badge: "h.png",
-        tag: "habit-reminder"
-    });
-
-    n.onclick = () => {
-        window.focus();
-        n.close();
+        icon: iconoNotificacion(),
+        badge: iconoNotificacion(),
+        tag: "habit-reminder",
+        renotify: true
     };
+
+    // 1) Preferir Service Worker (mejor en Android)
+    try {
+        if ("serviceWorker" in navigator) {
+            const reg = await navigator.serviceWorker.ready;
+            if (reg && reg.showNotification) {
+                await reg.showNotification(titulo, opciones);
+                return;
+            }
+        }
+    } catch (e) {
+        console.log("SW notification falló:", e);
+    }
+
+    // 2) Fallback clásico (PC / algunos móviles)
+    try {
+        const n = new Notification(titulo, opciones);
+        n.onclick = () => {
+            window.focus();
+            n.close();
+        };
+    } catch (e) {
+        console.error("Notification falló:", e);
+        mostrarToast("No se pudo mostrar la notificación", "error");
+    }
 }
 
 function programarRecordatorio() {
-    if (window._habitNotiInterval) clearInterval(window._habitNotiInterval);
+    if (window._habitNotiInterval) {
+        clearInterval(window._habitNotiInterval);
+        window._habitNotiInterval = null;
+    }
 
     const activas = localStorage.getItem("notisActivas") === "1";
-    if (!activas || Notification.permission !== "granted") return;
+    if (!activas || !("Notification" in window) || Notification.permission !== "granted") {
+        return;
+    }
 
+    // Revisa cada 20s
     window._habitNotiInterval = setInterval(() => {
         const horaConfig = localStorage.getItem("horaRecordatorio") || "21:00";
         const ahora = new Date();
-        const actual = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
         const hoy = fechaActual();
+
+        // Ventana de 2 minutos (no solo el minuto exacto)
+        const [h, m] = horaConfig.split(":").map(Number);
+        const minsConfig = h * 60 + m;
+        const minsAhora = ahora.getHours() * 60 + ahora.getMinutes();
+        const enHora = minsAhora >= minsConfig && minsAhora <= minsConfig + 1;
+
         const yaEnvio = localStorage.getItem("ultimaNoti") === hoy;
+        const yaGuardoHoy = typeof obtenerHoy === "function" ? !!obtenerHoy() : false;
 
-        // Solo si es la hora, no se envió hoy, Y no hay registro guardado del día
-        const yaGuardoHoy = !!obtenerHoy();
+        // Solo si: es la hora, no envió hoy, y NO guardó el día
+        if (enHora && !yaEnvio && !yaGuardoHoy) {
+            const pendientes = typeof obtenerHabitosHoy === "function"
+                ? obtenerHabitosHoy().length
+                : 0;
 
-        if (actual === horaConfig && !yaEnvio && !yaGuardoHoy) {
-            const pendientes = obtenerHabitosHoy().length;
             enviarNotificacion(
                 "Habit Tracker",
                 pendientes > 0
                     ? `Aún no guardaste el día. Tienes ${pendientes} hábito(s) pendiente(s).`
                     : "Aún no registraste tu progreso de hoy"
             );
+
             localStorage.setItem("ultimaNoti", hoy);
         }
-    }, 30000);
+    }, 20000);
 }
 
+// Activar / Desactivar
 document.getElementById("activarNotis")?.addEventListener("click", async () => {
     const activas = localStorage.getItem("notisActivas") === "1";
 
-    // Si ya están activas → desactivar
+    // Desactivar
     if (activas && Notification.permission === "granted") {
         localStorage.setItem("notisActivas", "0");
-        if (window._habitNotiInterval) clearInterval(window._habitNotiInterval);
+        if (window._habitNotiInterval) {
+            clearInterval(window._habitNotiInterval);
+            window._habitNotiInterval = null;
+        }
         actualizarUINotis();
         mostrarToast("Recordatorios desactivados", "info");
         return;
     }
 
-    // Activar
+    // Activar (pedir permiso en el mismo clic)
     const ok = await pedirPermisoNotificaciones();
     if (!ok) {
         actualizarUINotis();
@@ -1370,16 +1427,44 @@ document.getElementById("activarNotis")?.addEventListener("click", async () => {
     const hora = document.getElementById("horaRecordatorio")?.value || "21:00";
     localStorage.setItem("horaRecordatorio", hora);
     localStorage.setItem("notisActivas", "1");
+
     programarRecordatorio();
     actualizarUINotis();
+
+    // Confirmación inmediata en el teléfono
+    await enviarNotificacion(
+        "Habit Tracker",
+        `Recordatorios activados a las ${hora}`
+    );
+
     mostrarToast(`Recordatorios activados a las ${hora}`, "success");
 });
 
+// Probar (muy importante en móvil: permiso + envío en el mismo gesto)
 document.getElementById("probarNoti")?.addEventListener("click", async () => {
-    const ok = await pedirPermisoNotificaciones();
-    if (!ok) return;
-    enviarNotificacion("Habit Tracker", "Así se verá tu recordatorio diario 💪");
-    mostrarToast("Notificación de prueba enviada", "info");
+    if (!("Notification" in window)) {
+        mostrarToast("Tu navegador no soporta notificaciones", "warning");
+        return;
+    }
+
+    // Pedir permiso SIEMPRE dentro del click
+    let permiso = Notification.permission;
+    if (permiso !== "granted") {
+        permiso = await Notification.requestPermission();
+    }
+
+    if (permiso !== "granted") {
+        mostrarToast("Activa las notificaciones del sitio en el navegador", "warning");
+        actualizarUINotis();
+        return;
+    }
+
+    await enviarNotificacion(
+        "Habit Tracker",
+        "Prueba OK 👍 Si ves esto, las notis funcionan en este dispositivo"
+    );
+
+    mostrarToast("Mira la barra de notificaciones del sistema", "success");
 });
 
 document.getElementById("horaRecordatorio")?.addEventListener("change", (e) => {
@@ -1391,41 +1476,14 @@ document.getElementById("horaRecordatorio")?.addEventListener("change", (e) => {
     }
 });
 
+// Registrar Service Worker (ayuda mucho en Android)
+if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(() => {});
+}
+
 // Al cargar
 actualizarUINotis();
 programarRecordatorio();
-
-
-document.getElementById("btnIrArriba")?.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-});
-
-const btnArriba = document.getElementById("btnIrArriba");
-const sidebar = document.querySelector(".sidebar");
-
-function actualizarBotonArriba() {
-    if (!btnArriba || !sidebar) return;
-
-    // Solo en móvil
-    if (window.innerWidth > 900) {
-        btnArriba.style.display = "none";
-        return;
-    }
-
-    const rect = sidebar.getBoundingClientRect();
-    // Si el menú ya salió por arriba de la pantalla
-    const menuNoVisible = rect.bottom <= 0;
-
-    btnArriba.style.display = menuNoVisible ? "flex" : "none";
-}
-
-window.addEventListener("scroll", actualizarBotonArriba, { passive: true });
-window.addEventListener("resize", actualizarBotonArriba);
-actualizarBotonArriba();
-
-btnArriba?.addEventListener("click", () => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-});
 
 //==================================================
 // ACTUALIZAR TODO
