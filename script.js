@@ -1357,6 +1357,54 @@ async function enviarNotificacion(titulo, cuerpo) {
     }
 }
 
+function minutosDeHora(horaStr) {
+    const [h, m] = (horaStr || "21:00").split(":").map(Number);
+    return h * 60 + m;
+}
+
+function debeRecordarAhora() {
+    const activas = localStorage.getItem("notisActivas") === "1";
+    if (!activas || !("Notification" in window) || Notification.permission !== "granted") {
+        return false;
+    }
+
+    const hoy = fechaActual();
+    if (localStorage.getItem("ultimaNoti") === hoy) return false; // ya avisó hoy
+    if (typeof obtenerHoy === "function" && obtenerHoy()) return false; // ya guardó el día
+
+    const horaConfig = localStorage.getItem("horaRecordatorio") || "21:00";
+    const ahora = new Date();
+    const minsAhora = ahora.getHours() * 60 + ahora.getMinutes();
+    const minsConfig = minutosDeHora(horaConfig);
+
+    // Suena si:
+    // - estamos en la ventana de la hora (0–2 min después), O
+    // - YA PASÓ la hora de hoy (aviso atrasado, una sola vez)
+    return minsAhora >= minsConfig;
+}
+
+async function intentarRecordatorio(forzar = false) {
+    if (!forzar && !debeRecordarAhora()) return;
+
+    // Doble check por si acaso
+    const hoy = fechaActual();
+    if (localStorage.getItem("ultimaNoti") === hoy) return;
+    if (typeof obtenerHoy === "function" && obtenerHoy()) return;
+
+    const pendientes = typeof obtenerHabitosHoy === "function"
+        ? obtenerHabitosHoy().length
+        : 0;
+
+    await enviarNotificacion(
+        "Habit Tracker",
+        pendientes > 0
+            ? `Aún no guardaste el día. Tienes ${pendientes} hábito(s) pendiente(s).`
+            : "Aún no registraste tu progreso de hoy"
+    );
+
+    localStorage.setItem("ultimaNoti", hoy);
+}
+
 function programarRecordatorio() {
     if (window._habitNotiInterval) {
         clearInterval(window._habitNotiInterval);
@@ -1368,37 +1416,22 @@ function programarRecordatorio() {
         return;
     }
 
-    // Revisa cada 20s
+    // Al programar, si ya debió sonar hoy → suena ya
+    intentarRecordatorio();
+
+    // Revisión periódica
     window._habitNotiInterval = setInterval(() => {
-        const horaConfig = localStorage.getItem("horaRecordatorio") || "21:00";
-        const ahora = new Date();
-        const hoy = fechaActual();
-
-        // Ventana de 2 minutos (no solo el minuto exacto)
-        const [h, m] = horaConfig.split(":").map(Number);
-        const minsConfig = h * 60 + m;
-        const minsAhora = ahora.getHours() * 60 + ahora.getMinutes();
-        const enHora = minsAhora >= minsConfig && minsAhora <= minsConfig + 1;
-
-        const yaEnvio = localStorage.getItem("ultimaNoti") === hoy;
-        const yaGuardoHoy = typeof obtenerHoy === "function" ? !!obtenerHoy() : false;
-
-        // Solo si: es la hora, no envió hoy, y NO guardó el día
-        if (enHora && !yaEnvio && !yaGuardoHoy) {
-            const pendientes = typeof obtenerHabitosHoy === "function"
-                ? obtenerHabitosHoy().length
-                : 0;
-
-            enviarNotificacion(
-                "Habit Tracker",
-                pendientes > 0
-                    ? `Aún no guardaste el día. Tienes ${pendientes} hábito(s) pendiente(s).`
-                    : "Aún no registraste tu progreso de hoy"
-            );
-
-            localStorage.setItem("ultimaNoti", hoy);
-        }
+        intentarRecordatorio();
     }, 20000);
+
+    // Cuando vuelves a la pestaña (móvil muy importante)
+    document.removeEventListener("visibilitychange", window._habitNotiVis);
+    window._habitNotiVis = () => {
+        if (document.visibilityState === "visible") {
+            intentarRecordatorio();
+        }
+    };
+    document.addEventListener("visibilitychange", window._habitNotiVis);
 }
 
 // Activar / Desactivar
@@ -1417,7 +1450,7 @@ document.getElementById("activarNotis")?.addEventListener("click", async () => {
         return;
     }
 
-    // Activar (pedir permiso en el mismo clic)
+    // Activar
     const ok = await pedirPermisoNotificaciones();
     if (!ok) {
         actualizarUINotis();
@@ -1428,16 +1461,9 @@ document.getElementById("activarNotis")?.addEventListener("click", async () => {
     localStorage.setItem("horaRecordatorio", hora);
     localStorage.setItem("notisActivas", "1");
 
-    programarRecordatorio();
+    programarRecordatorio(); // si ya pasó la hora y no guardaste → suena aquí
     actualizarUINotis();
-
-    // Confirmación inmediata en el teléfono
-    await enviarNotificacion(
-        "Habit Tracker",
-        `Recordatorios activados a las ${hora}`
-    );
-
-    mostrarToast(`Recordatorios activados a las ${hora}`, "success");
+    mostrarToast(`Recordatorios activos a las ${hora}`, "success");
 });
 
 // Probar (muy importante en móvil: permiso + envío en el mismo gesto)
@@ -1475,6 +1501,7 @@ document.getElementById("horaRecordatorio")?.addEventListener("change", (e) => {
         mostrarToast(`Hora actualizada: ${e.target.value}`, "success");
     }
 });
+
 
 // Registrar Service Worker (ayuda mucho en Android)
 if ("serviceWorker" in navigator) {
