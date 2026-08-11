@@ -1,16 +1,27 @@
-/*==================================================
-        HABIT TRACKER PRO
-        SCRIPT.JS COMPLETO + MEJORAS
-==================================================*/
+/* =========================================================
+   HABIT TRACKER PRO - JAVASCRIPT COMPLETO
+   - Temporizador por actividad
+   - Hora máxima
+   - Notas / justificaciones
+   - Monedas + tienda
+   - Vidas + castigo por muerte
+   - Protectores y pases
+   - Gráficas 
+   - Retos mensuales / anuales
+   - Tiempo en pantalla
+   - Frases según desempeño
+   - Login local
+   - PWA / Service Worker
+   ========================================================= */
 
+const STORAGE_KEY = "habitTracker";
+const DAY_NAMES = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
+const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const MONTH_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
-//==================================================
-// OBJETO PRINCIPAL
-//==================================================
-
-const app = {
+const defaultApp = {
+    version: 3,
     habitos: [],
-    diaSeleccionado: "todos",
     historial: [],
     racha: {
         actual: 0,
@@ -19,1508 +30,5888 @@ const app = {
     },
     config: {
         nombre: "",
-        rachaMinima: 80
+        rachaMinima: 80,
+        vidasMaximas: 3,
+        castigo: "400 lagartijas"
+    },
+    economia: {
+        monedas: 0,
+        vidas: 3,
+        protectores: 0,
+        pases: 0,
+        pasesDia: 0
+    },
+    retos: {
+        mensuales: {},
+        anuales: {}
+    },
+    pantalla: {},
+    usuario: {
+        creado: false,
+        nombre: "",
+        correo: ""
     }
 };
 
-// Para deshacer eliminación
+let app = clone(defaultApp);
+let fechaPrueba = null;
+let fechaCalendario = new Date();
+let graficaGeneral = null;
+let graficaHabito = null;
+let timerInterval = null;
+
+let timerState = {
+    habitId: null,
+    startedAt: null,
+    elapsed: 0
+};
+
+let indiceEditando = null;
 let ultimoEliminado = null;
-let timeoutDeshacer = null;
+let undoTimer = null;
 
 
-//==================================================
-// SISTEMA DE TOASTS
-//==================================================
+/* =========================================================
+   UTILIDADES
+   ========================================================= */
 
-function mostrarToast(mensaje, tipo = "info", duracion = 3000) {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
+const $ = id => document.getElementById(id);
 
-    const toast = document.createElement("div");
-    toast.className = `toast ${tipo}`;
+function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+}
 
-    const iconos = {
+function uid(prefix = "id") {
+    return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function pad(n) {
+    return String(n).padStart(2, "0");
+}
+
+function hoyISO() {
+    if (fechaPrueba) {
+        return fechaPrueba;
+    }
+
+    const d = new Date();
+
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function dateObj(iso) {
+    return new Date(`${iso}T12:00:00`);
+}
+
+function isoFromDate(d) {
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function formatDate(
+    iso,
+    options = {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric"
+    }
+) {
+    return dateObj(iso).toLocaleDateString("es-MX", options);
+}
+
+function escapeHtml(value = "") {
+    const div = document.createElement("div");
+    div.textContent = String(value);
+    return div.innerHTML;
+}
+
+function toast(message, type = "info", duration = 3200) {
+    const container = $("toast-container");
+
+    if (!container) {
+        return;
+    }
+
+    const toastEl = document.createElement("div");
+
+    toastEl.className = `toast ${type}`;
+
+    const icons = {
         success: "✅",
         error: "❌",
         warning: "⚠️",
         info: "ℹ️"
     };
 
-    toast.innerHTML = `<span>${iconos[tipo] || "ℹ️"}</span><span>${mensaje}</span>`;
-    container.appendChild(toast);
+    toastEl.innerHTML = `
+        <span>${icons[type] || "ℹ️"}</span>
+        <span>${escapeHtml(message)}</span>
+    `;
 
-    setTimeout(() => toast.remove(), duracion);
+    container.appendChild(toastEl);
+
+    setTimeout(() => {
+        toastEl.remove();
+    }, duration);
 }
 
-
-//==================================================
-// MODAL DE CONFIRMACIÓN
-//==================================================
-
-function confirmar(mensaje) {
-    return new Promise((resolve) => {
-        const modal = document.getElementById("modalConfirm");
-        const texto = document.getElementById("modalConfirmTexto");
-        const btnAceptar = document.getElementById("modalAceptar");
-        const btnCancelar = document.getElementById("modalCancelar");
+function confirmar(message) {
+    return new Promise(resolve => {
+        const modal = $("modalConfirm");
 
         if (!modal) {
-            resolve(window.confirm(mensaje));
+            resolve(window.confirm(message));
             return;
         }
 
-        texto.textContent = mensaje;
+        $("modalConfirmTexto").textContent = message;
+
         modal.classList.remove("oculto");
 
-        const cerrar = (resultado) => {
+        const finish = value => {
             modal.classList.add("oculto");
-            btnAceptar.onclick = null;
-            btnCancelar.onclick = null;
-            resolve(resultado);
+
+            if ($("modalAceptar")) {
+                $("modalAceptar").onclick = null;
+            }
+
+            if ($("modalCancelar")) {
+                $("modalCancelar").onclick = null;
+            }
+
+            resolve(value);
         };
 
-        btnAceptar.onclick = () => cerrar(true);
-        btnCancelar.onclick = () => cerrar(false);
+        $("modalAceptar").onclick = () => finish(true);
+        $("modalCancelar").onclick = () => finish(false);
     });
 }
 
 
-//==================================================
-// CARGAR DATOS
-//==================================================
+/* =========================================================
+   GUARDADO
+   ========================================================= */
 
-function cargarDatos() {
-    const datos = JSON.parse(localStorage.getItem("habitTracker"));
+function save() {
+    app.version = 3;
 
-    if (datos) {
-        app.habitos = datos.habitos || [];
-        app.historial = datos.historial || [];
-        app.racha = datos.racha || {
-            actual: 0,
-            mejor: 0,
-            ultimaFecha: null
-        };
-    }
+    localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(app)
+    );
+}
 
-    app.config = Object.assign(
-    { nombre: "", rachaMinima: 80 },
-    datos?.config || {}
+
+/* =========================================================
+   NORMALIZACIÓN DE DATOS
+   ========================================================= */
+
+function ensureData() {
+    app = Object.assign(
+        clone(defaultApp),
+        app || {}
     );
 
-    if (app.config.rachaMinima !== 80 && app.config.rachaMinima !== 100) {
-        app.config.rachaMinima = 80;
-    }
+    app.config = Object.assign(
+        clone(defaultApp.config),
+        app.config || {}
+    );
 
-    // Migrar hábitos antiguos
-    app.habitos = app.habitos.map(h => {
-        if (h.dias) return h;
-        if (h.dia) return { nombre: h.nombre, dias: [h.dia] };
-        return h;
-    });
+    app.economia = Object.assign(
+        clone(defaultApp.economia),
+        app.economia || {}
+    );
 
-    if (app.habitos.length === 0) {
-        app.habitos = [
-            { nombre: "💧 Beber agua", dias: ["todos"] },
-            { nombre: "🏋️ Hacer ejercicio", dias: ["lunes"] },
-            { nombre: "📚 Leer", dias: ["martes"] },
-            { nombre: "😴 Dormir 8 horas", dias: ["todos"] },
-            { nombre: "🎯 Trabajar en mi meta", dias: ["sabado"] }
-        ];
-        guardarDatos();
-    }
-}
+    app.racha = Object.assign(
+        clone(defaultApp.racha),
+        app.racha || {}
+    );
 
+    app.usuario = Object.assign(
+        clone(defaultApp.usuario),
+        app.usuario || {}
+    );
 
-//==================================================
-// GUARDAR DATOS
-//==================================================
+    app.retos = Object.assign(
+        clone(defaultApp.retos),
+        app.retos || {}
+    );
 
-function guardarDatos() {
-    localStorage.setItem("habitTracker", JSON.stringify(app));
-}
+    app.habitos = Array.isArray(app.habitos)
+        ? app.habitos
+        : [];
 
+    app.historial = Array.isArray(app.historial)
+        ? app.historial
+        : [];
 
-//==================================================
-// ELEMENTOS HTML
-//==================================================
+    app.pantalla =
+        app.pantalla &&
+        typeof app.pantalla === "object"
+            ? app.pantalla
+            : {};
 
-const elementos = {
-    listaHabitos: document.getElementById("listaHabitos"),
-    listaEditar: document.getElementById("listaEditar"),
-    nuevoHabito: document.getElementById("nuevoHabito"),
-    porcentaje: document.getElementById("porcentajeHoy"),
-    contador: document.getElementById("contadorHabitos"),
-    racha: document.getElementById("racha"),
-    mejorRacha: document.getElementById("mejorRacha")
-};
+    app.economia.monedas = Math.max(
+        0,
+        Number(app.economia.monedas) || 0
+    );
 
+    app.economia.vidas = Math.max(
+        0,
+        Math.min(
+            Number(app.config.vidasMaximas) || 3,
+            Number(app.economia.vidas) || 0
+        )
+    );
 
-//==================================================
-// SELECTOR DE DÍAS
-//==================================================
+    app.economia.protectores = Math.max(
+        0,
+        Number(app.economia.protectores) || 0
+    );
 
-function inicializarSelectorDias() {
-    document.querySelectorAll(".dia-btn:not(.edit-dia)").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const dia = btn.dataset.dia;
+    app.economia.pases = Math.max(
+        0,
+        Number(app.economia.pases) || 0
+    );
 
-            if (dia === "todos") {
-                document.querySelectorAll(".dia-btn:not(.edit-dia)").forEach(b => b.classList.remove("activo"));
-                btn.classList.add("activo");
+    app.economia.pasesDia = Math.max(
+        0,
+        Number(app.economia.pasesDia) || 0
+    );
+
+    app.habitos = app.habitos.map(h => ({
+        id: h.id || uid("habit"),
+
+        nombre:
+            h.nombre ||
+            "Actividad",
+
+        dias:
+            Array.isArray(h.dias) &&
+            h.dias.length
+                ? h.dias
+                : ["todos"],
+
+        duracion: Math.max(
+            0,
+            Number(
+                h.duracion ||
+                h.tiempoObjetivo ||
+                0
+            )
+        ),
+
+        horaMax:
+            h.horaMax ||
+            "",
+
+        tipo:
+            h.tipo ||
+            (
+                Number(h.duracion || 0) > 0
+                    ? "timer"
+                    : "check"
+            )
+    }));
+
+    app.historial = app.historial.map(record => {
+        const habits = {};
+
+        Object.entries(
+            record.habitos || {}
+        ).forEach(([key, value]) => {
+
+            const habit = app.habitos.find(
+                h =>
+                    h.id === key ||
+                    h.nombre === key
+            );
+
+            const id = habit
+                ? habit.id
+                : key;
+
+            if (typeof value === "boolean") {
+
+                habits[id] = {
+                    estado: value
+                        ? "hecho"
+                        : "pendiente",
+                    nota: "",
+                    tiempo: 0
+                };
+
             } else {
-                document.querySelector('.dia-btn[data-dia="todos"]:not(.edit-dia)')?.classList.remove("activo");
-                btn.classList.toggle("activo");
+
+                habits[id] = Object.assign(
+                    {
+                        estado: "pendiente",
+                        nota: "",
+                        tiempo: 0
+                    },
+                    value || {}
+                );
             }
         });
-    });
-}
 
-function obtenerDiasSeleccionados(selector = ".dia-btn:not(.edit-dia).activo") {
-    const activos = document.querySelectorAll(selector);
-    if (activos.length === 0) return [];
-
-    const dias = Array.from(activos).map(b => b.dataset.dia);
-    if (dias.includes("todos")) return ["todos"];
-    return dias;
-}
-
-function limpiarSelectorDias() {
-    document.querySelectorAll(".dia-btn:not(.edit-dia)").forEach(b => b.classList.remove("activo"));
-}
-
-
-//==================================================
-// OBTENER HÁBITOS DE HOY
-//==================================================
-
-function obtenerHabitosHoy() {
-    const fecha = new Date();
-    const dias = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-    const diaActual = dias[fecha.getDay()];
-
-    return app.habitos.filter(h => {
-        const diasHabito = h.dias || (h.dia ? [h.dia] : []);
-        return diasHabito.includes("todos") || diasHabito.includes(diaActual);
+        return Object.assign(
+            {},
+            record,
+            {
+                habitos: habits,
+                nota: record.nota || ""
+            }
+        );
     });
 }
 
 
-//==================================================
-// CREAR LISTA DE HÁBITOS
-//==================================================
+/* =========================================================
+   MIGRACIÓN / INICIO
+   ========================================================= */
 
-function crearHabitos() {
-    elementos.listaHabitos.innerHTML = "";
+function migrate() {
+    const raw = localStorage.getItem(
+        STORAGE_KEY
+    );
 
-    const habitosHoy = obtenerHabitosHoy();
+    if (raw) {
+        try {
+            app = JSON.parse(raw);
+        } catch {
+            app = clone(defaultApp);
+        }
+    }
 
-    if (habitosHoy.length === 0) {
-        elementos.listaHabitos.innerHTML = `
-            <div class="vacio-habitos">
-                No tienes hábitos para hoy 🌱<br>
-                <small>Ve a Editar para añadir o cambiar los días</small>
-            </div>
-        `;
+    ensureData();
+
+    if (!app.habitos.length) {
+
+        app.habitos = [
+
+            {
+                id: uid("habit"),
+                nombre: "💧 Beber agua",
+                dias: ["todos"],
+                duracion: 0,
+                horaMax: "",
+                tipo: "check"
+            },
+
+            {
+                id: uid("habit"),
+                nombre: "🏋️ Hacer ejercicio",
+                dias: ["lunes"],
+                duracion: 30,
+                horaMax: "22:00",
+                tipo: "timer"
+            },
+
+            {
+                id: uid("habit"),
+                nombre: "📚 Leer",
+                dias: ["martes"],
+                duracion: 20,
+                horaMax: "23:00",
+                tipo: "timer"
+            },
+
+            {
+                id: uid("habit"),
+                nombre: "😴 Dormir 8 horas",
+                dias: ["todos"],
+                duracion: 0,
+                horaMax: "23:59",
+                tipo: "check"
+            }
+
+        ];
+    }
+
+    save();
+}
+
+
+/* =========================================================
+   ACTIVIDADES / REGISTROS
+   ========================================================= */
+
+function getHabitsForDate(iso) {
+    const day =
+        DAY_NAMES[
+            dateObj(iso).getDay()
+        ];
+
+    return app.habitos.filter(
+        h =>
+            h.dias.includes("todos") ||
+            h.dias.includes(day)
+    );
+}
+
+function getTodayHabits() {
+    return getHabitsForDate(
+        hoyISO()
+    );
+}
+
+function getRecord(iso = hoyISO()) {
+    return app.historial.find(
+        r => r.fecha === iso
+    );
+}
+
+function getOrCreateRecord(iso) {
+
+    let record = getRecord(iso);
+
+    if (!record) {
+
+        record = {
+            fecha: iso,
+            habitos: {},
+            nota: "",
+            porcentaje: 0,
+            completados: 0,
+            justificados: 0,
+            total: 0
+        };
+
+        getHabitsForDate(iso).forEach(
+            habit => {
+
+                record.habitos[habit.id] = {
+                    estado: "pendiente",
+                    nota: "",
+                    tiempo: 0
+                };
+
+            }
+        );
+
+        app.historial.push(record);
+    }
+
+    return record;
+}
+
+function getStatus(
+    iso,
+    habitId
+) {
+
+    const record = getRecord(iso);
+
+    if (
+        record &&
+        record.habitos &&
+        record.habitos[habitId]
+    ) {
+        return record.habitos[habitId];
+    }
+
+    return {
+        estado: "pendiente",
+        nota: "",
+        tiempo: 0
+    };
+}
+
+function setStatus(
+    iso,
+    habitId,
+    patch
+) {
+
+    const record =
+        getOrCreateRecord(iso);
+
+    record.habitos[habitId] =
+        Object.assign(
+            {
+                estado: "pendiente",
+                nota: "",
+                tiempo: 0
+            },
+            record.habitos[habitId] || {},
+            patch
+        );
+
+    recalculateRecord(record);
+
+    save();
+}
+
+function recalculateRecord(record) {
+
+    const habits =
+        getHabitsForDate(
+            record.fecha
+        );
+
+    let completed = 0;
+    let justified = 0;
+
+    habits.forEach(h => {
+
+        const state =
+            record.habitos?.[h.id]?.estado;
+
+        if (state === "hecho") {
+            completed++;
+        }
+
+        if (
+            state === "justificado" ||
+            state === "pase"
+        ) {
+            justified++;
+        }
+
+    });
+
+    record.total = habits.length;
+
+    record.completados = completed;
+
+    record.justificados = justified;
+
+    record.porcentaje =
+        Math.round(
+            (
+                completed /
+                (habits.length || 1)
+            ) * 100
+        );
+}
+
+function effectivePercentage(record) {
+
+    if (!record) {
+        return 0;
+    }
+
+    const habits =
+        getHabitsForDate(
+            record.fecha
+        );
+
+    const effective =
+        habits.filter(
+            h =>
+                [
+                    "hecho",
+                    "justificado",
+                    "pase"
+                ].includes(
+                    record.habitos?.[h.id]?.estado
+                )
+        ).length;
+
+    return Math.round(
+        (
+            effective /
+            (habits.length || 1)
+        ) * 100
+    );
+}
+
+
+/* =========================================================
+   HORA MÁXIMA
+   ========================================================= */
+
+function passedMaxTime(habit) {
+
+    if (!habit.horaMax) {
+        return false;
+    }
+
+    const [
+        hour,
+        minute
+    ] =
+        habit.horaMax
+            .split(":")
+            .map(Number);
+
+    const now = new Date();
+
+    const currentMinutes =
+        now.getHours() * 60 +
+        now.getMinutes();
+
+    const maxMinutes =
+        hour * 60 +
+        minute;
+
+    return currentMinutes >
+        maxMinutes;
+}
+
+
+/* =========================================================
+   COMPLETAR ACTIVIDAD
+   ========================================================= */
+
+function completeHabit(id) {
+
+    const habit = app.habitos.find(h => h.id === id);
+    if (!habit) return;
+
+    if (passedMaxTime(habit)) {
+        toast(`Ya pasó la hora máxima de ${habit.nombre}.`, "warning");
+        renderHabits();
         return;
     }
 
-    habitosHoy.forEach((habito, index) => {
-        const div = document.createElement("div");
-        div.className = "habito";
-        div.dataset.index = index;
-
-        div.innerHTML = `
-            <input type="checkbox" id="habito-${index}">
-            <label for="habito-${index}">${habito.nombre}</label>
-        `;
-
-        const checkbox = div.querySelector("input");
-        checkbox.addEventListener("change", () => {
-            div.classList.toggle("completado", checkbox.checked);
-
-            // Vibración corta en móvil
-            if (checkbox.checked && navigator.vibrate) {
-                navigator.vibrate(25);
-            }
-        });
-
-        elementos.listaHabitos.appendChild(div);
+    setStatus(hoyISO(), id, {
+        estado: "hecho",
+        nota: ""
     });
+
+    // Guardar y dar monedas al momento
+    const ganadas = rewardDay(hoyISO());
+    save();
+    actualizarTodo();
+
+    let msg = `${habit.nombre} completado`;
+    if (ganadas > 0) {
+        msg += ` · +${ganadas} $`;
+    }
+
+    toast(msg, "success");
 }
 
 
-//==================================================
-// PANEL DE EDICIÓN + DRAG & DROP + EDITAR
-//==================================================
+/* =========================================================
+   JUSTIFICACIONES
+   ========================================================= */
 
-function crearEditor() {
-    elementos.listaEditar.innerHTML = "";
+function openJustification(id) {
 
-    app.habitos.forEach((habito, index) => {
-        const div = document.createElement("div");
-        div.className = "editarHabito";
-        div.draggable = true;
-        div.dataset.index = index;
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
 
-        const dias = habito.dias || (habito.dia ? [habito.dia] : []);
-        const textoDias = dias.includes("todos")
-            ? "Todos los días"
-            : dias.map(d => d.charAt(0).toUpperCase() + d.slice(1)).join(", ");
+    if (!habit) {
+        return;
+    }
 
-        div.innerHTML = `
-            <span class="drag-handle">⠿</span>
-            <span style="flex:1">${habito.nombre} <small style="opacity:0.7">(${textoDias})</small></span>
-            <button class="btn-editar" onclick="abrirEditar(${index})">Editar</button>
-            <button onclick="eliminarHabito(${index})">Eliminar</button>
-        `;
+    if ($("justificacionTitulo")) {
+        $("justificacionTitulo").textContent =
+            `Justificar: ${habit.nombre}`;
+    }
 
-        // Drag & drop
-        div.addEventListener("dragstart", (e) => {
-            div.classList.add("dragging");
-            e.dataTransfer.setData("text/plain", index);
-        });
+    if ($("justificacionTexto")) {
+        $("justificacionTexto").value =
+            getStatus(
+                hoyISO(),
+                id
+            ).nota || "";
+    }
 
-        div.addEventListener("dragend", () => {
-            div.classList.remove("dragging");
-        });
+    if ($("modalJustificacion")) {
 
-        div.addEventListener("dragover", (e) => e.preventDefault());
+        $("modalJustificacion").dataset.habitId =
+            id;
 
-        div.addEventListener("drop", (e) => {
-            e.preventDefault();
-            const fromIndex = Number(e.dataTransfer.getData("text/plain"));
-            const toIndex = Number(div.dataset.index);
-            if (fromIndex === toIndex) return;
-
-            const [moved] = app.habitos.splice(fromIndex, 1);
-            app.habitos.splice(toIndex, 0, moved);
-
-            guardarDatos();
-            crearEditor();
-            crearHabitos();
-            crearSelectorHabitos();
-            mostrarToast("Hábitos reordenados", "success");
-        });
-
-        elementos.listaEditar.appendChild(div);
-    });
+        $("modalJustificacion")
+            .classList
+            .remove("oculto");
+    }
 }
 
+function saveJustification() {
 
-//==================================================
-// EDITAR HÁBITO (versión corregida)
-//==================================================
-
-let indiceEditando = null;
-
-function abrirEditar(index) {
-    indiceEditando = index;
-    const habito = app.habitos[index];
-    const modal = document.getElementById("modalEditar");
+    const modal =
+        $("modalJustificacion");
 
     if (!modal) {
-        mostrarToast("No se encontró el modal de editar", "error");
         return;
     }
 
-    // Nombre
-    const inputNombre = document.getElementById("editarNombre");
-    if (inputNombre) inputNombre.value = habito.nombre;
+    const id =
+        modal.dataset.habitId;
 
-    // Limpiar días
-    document.querySelectorAll(".edit-dia").forEach(b => b.classList.remove("activo"));
+    const text =
+        $("justificacionTexto")
+            ?.value
+            .trim() || "";
 
-    // Marcar los días del hábito
-    const dias = habito.dias || [];
-    dias.forEach(d => {
-        const btn = document.querySelector(`.edit-dia[data-dia="${d}"]`);
-        if (btn) btn.classList.add("activo");
-    });
+    if (!text) {
 
-    // Volver a enlazar los botones de días (importante)
-    document.querySelectorAll(".edit-dia").forEach(btn => {
-        btn.onclick = function () {
-            const dia = this.dataset.dia;
+        toast(
+            "Escribe una justificación",
+            "warning"
+        );
 
-            if (dia === "todos") {
-                document.querySelectorAll(".edit-dia").forEach(b => b.classList.remove("activo"));
-                this.classList.add("activo");
-            } else {
-                document.querySelector('.edit-dia[data-dia="todos"]')?.classList.remove("activo");
-                this.classList.toggle("activo");
-            }
-        };
-    });
+        return;
+    }
 
-    // Mostrar modal
-    modal.classList.remove("oculto");
+    setStatus(
+        hoyISO(),
+        id,
+        {
+            estado: "justificado",
+            nota: text
+        }
+    );
+
+    modal.classList.add("oculto");
+
+    actualizarTodo();
+
+    toast(
+        "Justificación guardada. Protege tu racha, pero no aumenta el porcentaje.",
+        "success"
+    );
 }
 
-function cerrarEditar() {
-    const modal = document.getElementById("modalEditar");
-    if (modal) modal.classList.add("oculto");
-    indiceEditando = null;
-}
 
-function guardarEdicion() {
-    if (indiceEditando === null) return;
+/* =========================================================
+   RENDER DE ACTIVIDADES
+   ========================================================= */
 
-    const nombre = document.getElementById("editarNombre")?.value.trim();
-    if (!nombre) {
-        mostrarToast("Escribe un nombre", "warning");
+function renderHabits() {
+
+    const box =
+        $("listaHabitos");
+
+    if (!box) {
         return;
     }
 
-    const activos = document.querySelectorAll(".edit-dia.activo");
-    let dias = Array.from(activos).map(b => b.dataset.dia);
+    box.innerHTML = "";
 
-    if (dias.includes("todos")) dias = ["todos"];
+    const habits =
+        getTodayHabits();
 
-    if (dias.length === 0) {
-        mostrarToast("Selecciona al menos un día", "warning");
+    if (!habits.length) {
+
+        box.innerHTML = `
+            <div class="empty">
+                No tienes actividades para hoy 🌱
+            </div>
+        `;
+
         return;
     }
 
-    app.habitos[indiceEditando].nombre = nombre;
-    app.habitos[indiceEditando].dias = dias;
+    const record =
+        getRecord();
 
-    guardarDatos();
-    crearHabitos();
-    crearEditor();
-    crearSelectorHabitos();
+    habits.forEach(habit => {
 
-    cerrarEditar();
-    mostrarToast("Hábito actualizado", "success");
-}
+        const status =
+            record?.habitos?.[habit.id] ||
+            {
+                estado: "pendiente",
+                nota: "",
+                tiempo: 0
+            };
 
-// Enlazar botones UNA sola vez (al cargar)
-document.getElementById("cancelarEditar")?.addEventListener("click", cerrarEditar);
-document.getElementById("guardarEditar")?.addEventListener("click", guardarEdicion);
+        const locked =
+            passedMaxTime(habit) &&
+            ![
+                "hecho",
+                "justificado",
+                "pase"
+            ].includes(
+                status.estado
+            );
 
-// Cerrar al hacer clic fuera del contenido
-document.getElementById("modalEditar")?.addEventListener("click", (e) => {
-    if (e.target.id === "modalEditar") {
-        cerrarEditar();
-    }
-});
+        const card =
+            document.createElement("div");
 
+        card.className =
+            `habito-item ${
+                status.estado === "justificado"
+                    ? "justified"
+                    : ""
+            }`;
 
-//==================================================
-// AGREGAR HÁBITO
-//==================================================
+        const meta = [];
 
-document.getElementById("agregarHabito")?.addEventListener("click", () => {
-    const nombre = elementos.nuevoHabito.value.trim();
-    if (nombre === "") {
-        mostrarToast("Escribe el nombre del hábito", "warning");
-        return;
-    }
-
-    
-
-    const diasSeleccionados = obtenerDiasSeleccionados();
-    if (diasSeleccionados.length === 0) {
-        mostrarToast("Selecciona al menos un día", "warning");
-        return;
-    }
-
-    app.habitos.push({
-        nombre: nombre,
-        dias: diasSeleccionados
-    });
-
-    guardarDatos();
-    crearHabitos();
-    crearEditor();
-    crearSelectorHabitos();
-
-    elementos.nuevoHabito.value = "";
-    limpiarSelectorDias();
-    mostrarToast("Hábito añadido", "success");
-});
-
-
-//==================================================
-// ELIMINAR HÁBITO + DESHACER CON CLIC EN TOAST
-//==================================================
-
-async function eliminarHabito(index) {
-    const ok = await confirmar("¿Quieres eliminar este hábito?");
-    if (!ok) return;
-
-    // Guardar para poder deshacer
-    ultimoEliminado = {
-        habito: { ...app.habitos[index] },
-        index: index
-    };
-
-    app.habitos.splice(index, 1);
-    guardarDatos();
-    crearHabitos();
-    crearEditor();
-    crearSelectorHabitos();
-
-    // Toast clickeable para deshacer
-    mostrarToastDeshacer("Hábito eliminado. Clic para deshacer");
-}
-
-function mostrarToastDeshacer(mensaje) {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
-
-    // Quitar toasts anteriores de deshacer
-    container.querySelectorAll(".toast.deshacer").forEach(t => t.remove());
-
-    const toast = document.createElement("div");
-    toast.className = "toast warning deshacer";
-    toast.style.cursor = "pointer";
-    toast.innerHTML = `<span>↩️</span><span>${mensaje}</span>`;
-
-    // Clic en el toast → restaurar
-    toast.addEventListener("click", () => {
-        if (!ultimoEliminado) {
-            mostrarToast("Ya no se puede deshacer", "info");
-            toast.remove();
-            return;
+        if (habit.duracion > 0) {
+            meta.push(
+                `⏱️ ${habit.duracion} min`
+            );
         }
 
-        app.habitos.splice(ultimoEliminado.index, 0, ultimoEliminado.habito);
-        guardarDatos();
-        crearHabitos();
-        crearEditor();
-        crearSelectorHabitos();
+        if (habit.horaMax) {
+            meta.push(
+                `⏰ ${habit.horaMax}`
+            );
+        }
 
-        ultimoEliminado = null;
-        clearTimeout(timeoutDeshacer);
+        if (status.tiempo > 0) {
+            meta.push(
+                `▶ ${formatMinutes(
+                    Math.round(
+                        status.tiempo / 60
+                    )
+                )}`
+            );
+        }
 
-        toast.remove();
-        mostrarToast("Hábito restaurado", "success");
+        if (
+            status.estado ===
+            "justificado"
+        ) {
+            meta.push(
+                "📝 Justificado"
+            );
+        }
+
+        if (
+            status.estado === "pase"
+        ) {
+            meta.push(
+                "🎫 Pase usado"
+            );
+        }
+
+        if (locked) {
+            meta.push(
+                "⛔ Bloqueada"
+            );
+        }
+
+        card.innerHTML = `
+
+            <div style="width:100%">
+
+                <div class="habito-main">
+
+                    <input
+                        class="habito-checkbox"
+                        type="checkbox"
+                        ${
+                            status.estado === "hecho"
+                                ? "checked"
+                                : ""
+                        }
+                        ${
+                            locked
+                                ? "disabled"
+                                : ""
+                        }
+                    >
+
+                    <div>
+
+                        <div class="habito-nombre">
+                            ${escapeHtml(
+                                habit.nombre
+                            )}
+                        </div>
+
+                        <div class="habito-meta">
+
+                            ${
+                                meta
+                                    .map(
+                                        x =>
+                                            `<span class="badge">
+                                                ${escapeHtml(x)}
+                                            </span>`
+                                    )
+                                    .join("")
+                            }
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="habito-actions">
+
+                    ${
+                        habit.duracion > 0 &&
+                        status.estado === "pendiente" &&
+                        !locked
+                            ? `
+                                <button class="timer-button">
+                                    ⏱️ Temporizador
+                                </button>
+                            `
+                            : ""
+                    }
+
+                    ${
+                        status.estado !== "hecho" &&
+                        status.estado !== "pase" &&
+                        !locked
+                            ? `
+                                <button class="note-button">
+                                    📝 Justificar
+                                </button>
+                            `
+                            : ""
+                    }
+
+                    ${
+                        status.estado === "pendiente" &&
+                        app.economia.pases > 0 &&
+                        !locked
+                            ? `
+                                <button class="pass-button">
+                                    🎫 Usar pase
+                                </button>
+                            `
+                            : ""
+                    }
+
+                </div>
+
+                ${
+                    habit.duracion > 0 &&
+                    status.estado === "pendiente" &&
+                    !locked
+                        ? `
+                            <div class="timer-box oculto"></div>
+                        `
+                        : ""
+                }
+
+                ${
+                    status.estado === "justificado"
+                        ? `
+                            <div class="justification">
+                                📝 ${escapeHtml(
+                                    status.nota ||
+                                    "Justificado"
+                                )}
+                            </div>
+                        `
+                        : ""
+                }
+
+                ${
+                    locked
+                        ? `
+                            <div class="justification">
+                                ⛔ Hora máxima superada
+                                (${escapeHtml(
+                                    habit.horaMax
+                                )}).
+                                Ya no se puede completar.
+                            </div>
+                        `
+                        : ""
+                }
+
+            </div>
+        `;
+
+        const checkbox =
+            card.querySelector(
+                ".habito-checkbox"
+            );
+
+        if (checkbox) {
+
+            checkbox.addEventListener(
+                "change",
+                () => {
+
+                    if (checkbox.checked) {
+                        completeHabit(
+                            habit.id
+                        );
+                    }
+
+                }
+            );
+        }
+
+        card
+            .querySelector(".note-button")
+            ?.addEventListener(
+                "click",
+                () =>
+                    openJustification(
+                        habit.id
+                    )
+            );
+
+        card
+            .querySelector(".pass-button")
+            ?.addEventListener(
+                "click",
+                () =>
+                    useActivityPass(
+                        habit.id
+                    )
+            );
+
+        card
+            .querySelector(".timer-button")
+            ?.addEventListener(
+                "click",
+                () =>
+                    openTimer(
+                        habit.id,
+                        card.querySelector(
+                            ".timer-box"
+                        )
+                    )
+            );
+
+        box.appendChild(card);
     });
 
-    container.appendChild(toast);
-
-    // Se elimina solo a los 5 segundos si no se usa
-    clearTimeout(timeoutDeshacer);
-    timeoutDeshacer = setTimeout(() => {
-        ultimoEliminado = null;
-        toast.remove();
-    }, 5000);
+    checkPendingJustifications();
 }
 
 
-//==================================================
-// MOSTRAR PÁGINAS
-//==================================================
+/* =========================================================
+   TEMPORIZADOR
+   ========================================================= */
 
-function mostrar(id, boton) {
-    document.querySelectorAll(".pagina").forEach(p => p.classList.add("oculto"));
-    document.getElementById(id).classList.remove("oculto");
+function renderTimer(
+    panel,
+    habit
+) {
 
-    document.querySelectorAll(".menu").forEach(b => b.classList.remove("active"));
-    boton.classList.add("active");
+    if (!panel || !habit) {
+        return;
+    }
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    const total =
+        habit.duracion * 60;
+
+    const elapsed =
+        Math.min(
+            timerState.elapsed,
+            total
+        );
+
+    const percent =
+        total
+            ? Math.round(
+                (elapsed / total) *
+                100
+            )
+            : 0;
+
+    const minutes =
+        pad(
+            Math.floor(
+                elapsed / 60
+            )
+        );
+
+    const seconds =
+        pad(
+            elapsed % 60
+        );
+
+    panel.innerHTML = `
+
+        <div class="timer-display">
+            ${minutes}:${seconds}
+        </div>
+
+        <div class="timer-progress">
+
+            <div
+                class="timer-progress-bar"
+                style="width:${percent}%"
+            ></div>
+
+        </div>
+
+        <button
+            class="timer-button ${
+                timerState.startedAt
+                    ? "running"
+                    : ""
+            }"
+        >
+            ${
+                timerState.startedAt
+                    ? "⏸ Pausar"
+                    : "▶ Continuar"
+            }
+        </button>
+
+        <button
+            class="timer-button timer-stop"
+        >
+            ⏹ Detener
+        </button>
+    `;
+
+    panel
+        .querySelector(
+            ".timer-button"
+        )
+        ?.addEventListener(
+            "click",
+            () => {
+
+                if (
+                    timerState.startedAt
+                ) {
+                    pauseTimer(
+                        habit.id,
+                        false
+                    );
+                } else {
+                    startTimer(
+                        habit.id
+                    );
+                }
+
+            }
+        );
+
+    panel
+        .querySelector(
+            ".timer-stop"
+        )
+        ?.addEventListener(
+            "click",
+            () =>
+                pauseTimer(
+                    habit.id,
+                    true
+                )
+        );
 }
 
+function openTimer(
+    id,
+    panel
+) {
 
-//==================================================
-// INICIAR APP
-//==================================================
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
 
-function iniciar() {
-    cargarDatos();
-    crearHabitos();
-    crearEditor();
-    inicializarSelectorDias();
+    if (
+        !habit ||
+        !habit.duracion
+    ) {
+        return;
+    }
+
+    if (passedMaxTime(habit)) {
+
+        toast(
+            "La hora máxima ya pasó",
+            "warning"
+        );
+
+        return;
+    }
+
+    if (
+        timerState.habitId &&
+        timerState.habitId !== id
+    ) {
+
+        toast(
+            "Termina el temporizador actual primero",
+            "warning"
+        );
+
+        return;
+    }
+
+    timerState.habitId = id;
+
+    timerState.elapsed =
+        getStatus(
+            hoyISO(),
+            id
+        ).tiempo || 0;
+
+    if (panel) {
+        panel.classList.remove(
+            "oculto"
+        );
+
+        renderTimer(
+            panel,
+            habit
+        );
+    }
+
+    clearInterval(
+        timerInterval
+    );
+
+    timerInterval =
+        setInterval(() => {
+
+            if (
+                !timerState.startedAt
+            ) {
+                return;
+            }
+
+            const saved =
+                getStatus(
+                    hoyISO(),
+                    id
+                ).tiempo || 0;
+
+            timerState.elapsed =
+                Math.floor(
+                    (
+                        Date.now() -
+                        timerState.startedAt
+                    ) / 1000
+                ) + saved;
+
+            if (
+                timerState.elapsed >=
+                habit.duracion * 60
+            ) {
+
+                finishTimer(id);
+
+            } else {
+
+                renderHabitsWithOpenTimer(
+                    id
+                );
+            }
+
+        }, 1000);
 }
 
-iniciar();
+function startTimer(id) {
 
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
 
-/*==================================================
-        PARTE 2: REGISTRO DIARIO + RACHA
-==================================================*/
+    if (
+        !habit ||
+        passedMaxTime(habit)
+    ) {
+        return;
+    }
 
-let fechaPrueba = null;
+    timerState.habitId = id;
 
-function fechaActual() {
-    if (fechaPrueba) return fechaPrueba;
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    timerState.startedAt =
+        Date.now();
+
+    toast(
+        "Temporizador iniciado ⏱️",
+        "info"
+    );
+
+    renderHabitsWithOpenTimer(id);
 }
 
-function obtenerHoy() {
-    return app.historial.find(dia => dia.fecha === fechaActual());
+function pauseTimer(
+    id,
+    stop = false
+) {
+
+    if (
+        timerState.habitId !== id
+    ) {
+        return;
+    }
+
+    if (
+        timerState.startedAt
+    ) {
+
+        timerState.elapsed =
+            Math.floor(
+                (
+                    Date.now() -
+                    timerState.startedAt
+                ) / 1000
+            ) +
+            (
+                getStatus(
+                    hoyISO(),
+                    id
+                ).tiempo || 0
+            );
+    }
+
+    timerState.startedAt =
+        null;
+
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
+
+    setStatus(
+        hoyISO(),
+        id,
+        {
+            tiempo: Math.min(
+                timerState.elapsed,
+                (
+                    habit?.duracion ||
+                    0
+                ) * 60
+            )
+        }
+    );
+
+    if (stop) {
+
+        clearInterval(
+            timerInterval
+        );
+
+        timerInterval = null;
+
+        timerState = {
+            habitId: null,
+            startedAt: null,
+            elapsed: 0
+        };
+    }
+
+    renderHabitsWithOpenTimer(
+        stop
+            ? null
+            : id
+    );
 }
 
+function finishTimer(id) {
 
-//==================================================
-// GUARDAR PROGRESO + NOTA + CONFETTI
-//==================================================
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
 
-document.getElementById("guardar")?.addEventListener("click", guardarDia);
+    if (!habit) {
+        return;
+    }
 
-function guardarDia() {
-    let completados = 0;
-    let lista = {};
+    clearInterval(
+        timerInterval
+    );
 
-    const habitosHoy = obtenerHabitosHoy();
+    timerInterval = null;
 
-    habitosHoy.forEach((habito, index) => {
-        const check = document.getElementById(`habito-${index}`);
-        const hecho = check ? check.checked : false;
-        lista[habito.nombre] = hecho;
-        if (hecho) completados++;
+    if (passedMaxTime(habit)) {
+
+        setStatus(
+            hoyISO(),
+            id,
+            {
+                tiempo:
+                    habit.duracion *
+                    60
+            }
+        );
+
+        timerState = {
+            habitId: null,
+            startedAt: null,
+            elapsed: 0
+        };
+
+        renderHabits();
+
+        toast(
+            "El temporizador terminó después de la hora máxima y no se completó.",
+            "warning"
+        );
+
+        return;
+    }
+
+    setStatus(hoyISO(), id, {
+    estado: "hecho",
+        tiempo: habit.duracion * 60
     });
 
-    const porcentaje = Math.round((completados / (habitosHoy.length || 1)) * 100);
+    const ganadas = rewardDay(hoyISO());
+    save();
 
-    const nota = document.getElementById("notaDia")?.value.trim() || "";
-
-    const registro = {
-        fecha: fechaActual(),
-        porcentaje,
-        completados,
-        total: habitosHoy.length,
-        habitos: lista,
-        nota: nota
+    timerState = {
+        habitId: null,
+        startedAt: null,
+        elapsed: 0
     };
 
-    const posicion = app.historial.findIndex(d => d.fecha === registro.fecha);
+    renderHabits();
+    actualizarDashboard();
 
-    if (posicion !== -1) {
-        app.historial[posicion] = registro;
-    } else {
-        app.historial.push(registro);
+    let msg = `${habit.nombre} completado por temporizador 🎉`;
+    if (ganadas > 0) msg += ` · +${ganadas} $`;
+
+    toast(msg, "success");
+}
+
+function renderHabitsWithOpenTimer(id) {
+
+    renderHabits();
+
+    if (!id) {
+        return;
     }
+
+    const cards =
+        document.querySelectorAll(
+            "#listaHabitos .habito-item"
+        );
+
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
+
+    const index =
+        getTodayHabits().findIndex(
+            h => h.id === id
+        );
+
+    const card =
+        cards[index];
+
+    const panel =
+        card?.querySelector(
+            ".timer-box"
+        );
+
+    if (
+        panel &&
+        habit
+    ) {
+
+        panel.classList.remove(
+            "oculto"
+        );
+
+        renderTimer(
+            panel,
+            habit
+        );
+    }
+}
+
+
+/* =========================================================
+   PASE DE ACTIVIDAD
+   ========================================================= */
+
+function useActivityPass(id) {
+
+    if (
+        app.economia.pases <= 0
+    ) {
+
+        toast(
+            "No tienes pases de actividad",
+            "warning"
+        );
+
+        return;
+    }
+
+    app.economia.pases--;
+
+    setStatus(
+        hoyISO(),
+        id,
+        {
+            estado: "pase",
+            nota:
+                "Se usó un pase de actividad"
+        }
+    );
+
+    save();
+
+    actualizarTodo();
+
+    toast(
+        "Pase usado. La actividad no rompe la racha.",
+        "success"
+    );
+}
+
+
+/* =========================================================
+   GUARDAR DÍA
+   ========================================================= */
+
+function saveDay() {
+
+    const record = getOrCreateRecord(hoyISO());
+
+    if ($("notaDia")) {
+        record.nota = $("notaDia").value.trim();
+    }
+
+    recalculateRecord(record);
+
+    const ganadas = rewardDay(record.fecha);
+
+    save();
+    actualizarTodo();
+
+    let mensaje = `Día guardado · ${record.porcentaje}%`;
+
+    if (ganadas > 0) {
+        mensaje += ` · +${ganadas} $`;
+    }
+
+    if (app.racha.actual > 0) {
+        mensaje += ` · Racha ${app.racha.actual} 🔥`;
+    }
+
+    toast(mensaje, "success", 4000);
+
+    if (record.porcentaje === 100 && record.total > 0) {
+        confetti();
+    }
+}
+
+function rewardDay(date) {
+
+    const record = getRecord(date);
+    if (!record) return;
+
+    // Cuántas monedas “merece” el porcentaje actual
+    let coinsQueTocan = 10;
+
+    if (record.porcentaje >= 50) coinsQueTocan += 10;
+    if (record.porcentaje >= 80) coinsQueTocan += 20;
+    if (record.porcentaje === 100) coinsQueTocan += 20;
+
+    // Cuántas ya se dieron este día
+    const key = `reward_coins_${date}`;
+    const yaDadas = Number(localStorage.getItem(key) || 0);
+
+    // Solo damos la diferencia
+    const diferencia = coinsQueTocan - yaDadas;
+
+    if (diferencia <= 0) return 0;
+
+    app.economia.monedas += diferencia;
+    localStorage.setItem(key, String(coinsQueTocan));
+
+    // Marca que ya se usó la app (para no quitar vida el primer día)
+    localStorage.setItem("habitTracker_used", "1");
 
     actualizarRacha();
-    guardarDatos();
-    actualizarDashboard();
-    crearCalendario();
+    actualizarRetos();
 
-    // Cargar nota si existe
-    if (document.getElementById("notaDia")) {
-        document.getElementById("notaDia").value = nota;
-    }
-
-    mostrarToast("Progreso guardado correctamente", "success");
-
-    // Celebración si llegó al 100%
-    if (porcentaje === 100 && habitosHoy.length > 0) {
-        lanzarConfeti();
-        mostrarToast("¡Día perfecto! 🎉", "success", 4000);
-    }
-}
-
-// Cargar nota al iniciar
-function cargarNotaHoy() {
-    const hoy = obtenerHoy();
-    const textarea = document.getElementById("notaDia");
-    if (textarea && hoy?.nota) {
-        textarea.value = hoy.nota;
-    }
+    return diferencia; // para poder mostrar cuántas se ganaron
 }
 
 
-//==================================================
-// CONFETTI
-//==================================================
-
-function lanzarConfeti() {
-    const container = document.createElement("div");
-    container.className = "confeti-container";
-    document.body.appendChild(container);
-
-    const colores = ["#22c55e", "#3b82f6", "#f59e0b", "#ef4444", "#a855f7", "#ec4899"];
-
-    for (let i = 0; i < 60; i++) {
-        const confeti = document.createElement("div");
-        confeti.className = "confeti";
-        confeti.style.left = Math.random() * 100 + "vw";
-        confeti.style.background = colores[Math.floor(Math.random() * colores.length)];
-        confeti.style.animationDelay = Math.random() * 0.8 + "s";
-        confeti.style.transform = `rotate(${Math.random() * 360}deg)`;
-        container.appendChild(confeti);
-    }
-
-    setTimeout(() => container.remove(), 3000);
-}
-
-
-//==================================================
-// SISTEMA DE RACHA
-//==================================================
+/* =========================================================
+   RACHA
+   ========================================================= */
 
 function actualizarRacha() {
-    const hoy = obtenerHoy();
-    if (!hoy) return;
 
-    const minimo = app.config?.rachaMinima ?? 80;
+    const minimum =
+        Number(
+            app.config.rachaMinima
+        ) || 80;
 
-    if (hoy.porcentaje < minimo) {
-        app.racha.actual = 0;
-        app.racha.ultimaFecha = null;
-        return;
-    }
+    const records =
+        [...app.historial]
+            .sort(
+                (a, b) =>
+                    a.fecha.localeCompare(
+                        b.fecha
+                    )
+            );
 
-    if (app.racha.ultimaFecha === null) {
-        app.racha.actual = 1;
-        app.racha.ultimaFecha = hoy.fecha;
-    } else if (app.racha.ultimaFecha === hoy.fecha) {
-        return;
-    } else {
-        const ultima = new Date(app.racha.ultimaFecha);
-        const actual = new Date(hoy.fecha);
-        const diferencia = Math.floor((actual - ultima) / (1000 * 60 * 60 * 24));
-        app.racha.actual = diferencia === 1 ? app.racha.actual + 1 : 1;
-        app.racha.ultimaFecha = hoy.fecha;
-    }
+    let current = 0;
+    let best = 0;
+    let last = null;
 
-    if (app.racha.actual > app.racha.mejor) {
-        app.racha.mejor = app.racha.actual;
-    }
-}
+    for (
+        const record of records
+    ) {
 
+        const effective =
+            effectivePercentage(
+                record
+            );
 
-//==================================================
-// ACTUALIZAR DASHBOARD
-//==================================================
+        if (
+            effective >= minimum
+        ) {
 
-function actualizarDashboard() {
-    const hoy = obtenerHoy();
+            if (last) {
 
-    if (!hoy) {
-        elementos.porcentaje.textContent = "0%";
-        elementos.contador.textContent = `0 / ${obtenerHabitosHoy().length}`;
-    } else {
-        elementos.porcentaje.textContent = hoy.porcentaje + "%";
-        elementos.contador.textContent = `${hoy.completados} / ${hoy.total}`;
-    }
+                const diff =
+                    Math.round(
+                        (
+                            dateObj(
+                                record.fecha
+                            ) -
+                            dateObj(last)
+                        ) / 86400000
+                    );
 
-    elementos.racha.textContent = "🔥 " + app.racha.actual;
-    elementos.mejorRacha.textContent = app.racha.mejor;
-}
+                current =
+                    diff === 1
+                        ? current + 1
+                        : 1;
 
+            } else {
 
-//==================================================
-// CARGAR ESTADO DE HOY
-//==================================================
+                current = 1;
+            }
 
-function cargarHoy() {
-    const hoy = obtenerHoy();
-    if (!hoy) return;
+            last = record.fecha;
 
-    const habitosHoy = obtenerHabitosHoy();
-
-    habitosHoy.forEach((habito, index) => {
-        const check = document.getElementById(`habito-${index}`);
-        if (check && hoy.habitos[habito.nombre]) {
-            check.checked = true;
-            check.closest(".habito")?.classList.add("completado");
+            best =
+                Math.max(
+                    best,
+                    current
+                );
         }
-    });
+    }
 
-    cargarNotaHoy();
+    app.racha = {
+        actual: current,
+        mejor:
+            Math.max(
+                Number(
+                    app.racha.mejor
+                ) || 0,
+                best
+            ),
+        ultimaFecha: last
+    };
+
+    save();
 }
 
-actualizarDashboard();
-setTimeout(() => cargarHoy(), 100);
+
+/* =========================================================
+   CIERRE DEL DÍA / VIDAS
+   ========================================================= */
+
+function processYesterday() {
+
+    const d = dateObj(hoyISO());
+    d.setDate(d.getDate() - 1);
+    const iso = isoFromDate(d);
+
+    const closedKey = `closed_${iso}`;
+
+    if (localStorage.getItem(closedKey)) {
+        return;
+    }
+
+    const habits = getHabitsForDate(iso);
+
+    if (!habits.length) {
+        localStorage.setItem(closedKey, "1");
+        return;
+    }
+
+    // ============================================
+    // PROTECCIÓN PRIMER USO / RECIÉN INSTALADA
+    // ============================================
+    const haUsadoLaApp =
+        app.historial.some(r =>
+            r.completados > 0 ||
+            r.porcentaje > 0 ||
+            r.justificados > 0
+        ) ||
+        app.racha.mejor > 0 ||
+        app.economia.monedas > 0 ||
+        localStorage.getItem("habitTracker_used") === "1";
+
+    if (!haUsadoLaApp) {
+        // Es la primera vez → no penalizar
+        localStorage.setItem(closedKey, "1");
+        return;
+    }
+
+    // ============================================
+    // Lógica normal de cierre de día
+    // ============================================
+
+    const record = getOrCreateRecord(iso);
+    recalculateRecord(record);
+
+    const effective = effectivePercentage(record);
+
+    if (effective < Number(app.config.rachaMinima)) {
+
+        if (record.protegido) {
+            // Ya estaba protegido
+        } else if (app.economia.protectores > 0) {
+
+            app.economia.protectores--;
+            record.protegido = true;
+            toast("🛡️ Protector de racha usado automáticamente", "info");
+
+        } else if (app.economia.pasesDia > 0) {
+
+            app.economia.pasesDia--;
+            record.protegido = true;
+            record.habitos.__day = {
+                estado: "pase",
+                nota: "Pase de día usado"
+            };
+
+        } else {
+
+            app.economia.vidas = Math.max(0, app.economia.vidas - 1);
+
+            toast("❤️ Perdiste una vida por no cumplir ayer", "warning");
+
+            if (app.economia.vidas === 0) {
+                activateDeath();
+            }
+        }
+    }
+
+    localStorage.setItem(closedKey, "1");
+    save();
+    actualizarRacha();
+}
+
+function activateDeath() {
+
+    if ($("modalMuerte")) {
+
+        if ($("castigoTexto")) {
+            $("castigoTexto").textContent =
+                app.config.castigo ||
+                "400 lagartijas";
+        }
+
+        $("modalMuerte")
+            .classList
+            .remove("oculto");
+    }
+}
+
+function completePunishment() {
+
+    app.economia.vidas =
+        Number(
+            app.config.vidasMaximas
+        ) || 3;
+
+    save();
+
+    $("modalMuerte")
+        ?.classList
+        .add("oculto");
+
+    toast(
+        "Castigo registrado. Tus vidas fueron restauradas.",
+        "success"
+    );
+
+    actualizarTodo();
+}
 
 
-/*==================================================
-        PARTE 3: CALENDARIO
-==================================================*/
+/* =========================================================
+   TIENDA
+   ========================================================= */
 
-let fechaCalendario = new Date();
+const STORE_ITEMS = [
 
-const nombresMeses = [
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+    {
+        id: "life",
+        name: "Vida",
+        description:
+            "Recupera una vida",
+        price: 250,
+        icon: "❤️"
+    },
+
+    {
+        id: "shield",
+        name: "Protector de racha",
+        description:
+            "Evita perder una racha por un día fallido",
+        price: 150,
+        icon: "🛡️"
+    },
+
+    {
+        id: "pass",
+        name: "Pase de actividad",
+        description:
+            "Pasa una actividad sin romper la racha",
+        price: 100,
+        icon: "🎫"
+    },
+
+    {
+        id: "daypass",
+        name: "Pase de día",
+        description:
+            "Protege un día completo",
+        price: 500,
+        icon: "📅"
+    }
+
 ];
 
-function crearCalendario() {
-    const calendario = document.getElementById("calendar");
-    if (!calendario) return;
+function buyItem(id) {
 
-    calendario.innerHTML = "";
+    const item =
+        STORE_ITEMS.find(
+            x => x.id === id
+        );
 
-    const año = fechaCalendario.getFullYear();
-    const mes = fechaCalendario.getMonth();
-
-    document.getElementById("mesActual").textContent = `${nombresMeses[mes]} ${año}`;
-
-    const primerDia = new Date(año, mes, 1).getDay();
-    const diasMes = new Date(año, mes + 1, 0).getDate();
-    let inicio = primerDia === 0 ? 6 : primerDia - 1;
-
-    const diasSemana = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
-
-    diasSemana.forEach(d => {
-        const dia = document.createElement("div");
-        dia.className = "nombreDia";
-        dia.textContent = d;
-        calendario.appendChild(dia);
-    });
-
-    for (let i = 0; i < inicio; i++) {
-        const espacio = document.createElement("div");
-        espacio.className = "dia vacio";
-        calendario.appendChild(espacio);
-    }
-
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-
-    let primerRegistroDelMes = null;
-    for (let d = 1; d <= diasMes; d++) {
-        const fechaStr = `${año}-${String(mes + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        if (app.historial.find(r => r.fecha === fechaStr)) {
-            primerRegistroDelMes = d;
-            break;
-        }
-    }
-
-    for (let dia = 1; dia <= diasMes; dia++) {
-        const fecha = `${año}-${String(mes + 1).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-        const registro = app.historial.find(d => d.fecha === fecha);
-
-        const div = document.createElement("div");
-        div.className = "dia";
-
-        let contenido = `<strong>${dia}</strong>`;
-        let porcentaje = null;
-
-        if (registro) {
-            porcentaje = registro.porcentaje;
-        } else {
-            const fechaActual = new Date(año, mes, dia);
-            if (fechaActual <= hoy && primerRegistroDelMes !== null && dia < primerRegistroDelMes) {
-                porcentaje = 0;
-            }
-        }
-
-        if (porcentaje !== null) {
-            contenido += `<span class="porcentajeDia">${porcentaje}%</span>`;
-            if (porcentaje >= 80) div.classList.add("verde");
-            else if (porcentaje >= 50) div.classList.add("amarillo");
-            else div.classList.add("rojo");
-        }
-
-        div.innerHTML = contenido;
-
-        div.onclick = () => {
-            const fechaObj = new Date(fecha + "T12:00:00");
-            const dias = ["domingo", "lunes", "martes", "miercoles", "jueves", "viernes", "sabado"];
-            app.diaSeleccionado = dias[fechaObj.getDay()];
-            crearHabitos();
-            mostrarDetalleDia(fecha);
-        };
-
-        calendario.appendChild(div);
-    }
-}
-
-function mesAnterior() {
-    fechaCalendario.setMonth(fechaCalendario.getMonth() - 1);
-    crearCalendario();
-}
-
-function mesSiguiente() {
-    fechaCalendario.setMonth(fechaCalendario.getMonth() + 1);
-    crearCalendario();
-}
-
-function mostrarDetalleDia(fecha) {
-    const dia = app.historial.find(d => d.fecha === fecha);
-
-    if (!dia) {
-        mostrarToast("No hay registros este día", "info");
+    if (!item) {
         return;
     }
 
-    // Fecha bonita
-    const fechaObj = new Date(fecha + "T12:00:00");
-    const opciones = { weekday: "long", day: "numeric", month: "long" };
-    const fechaBonita = fechaObj.toLocaleDateString("es-ES", opciones);
+    if (
+        app.economia.monedas <
+        item.price
+    ) {
 
-    document.getElementById("detalleFecha").textContent = "📅 " + fechaBonita;
-    document.getElementById("detallePorcentaje").textContent = dia.porcentaje + "%";
+        toast(
+            "No tienes suficientes monedas",
+            "warning"
+        );
 
-    // Lista de hábitos
-    const contenedor = document.getElementById("detalleHabitos");
-    contenedor.innerHTML = "";
+        return;
+    }
 
-    Object.entries(dia.habitos).forEach(([nombre, hecho]) => {
-        const item = document.createElement("div");
-        item.className = `detalle-item ${hecho ? "hecho" : "no-hecho"}`;
-        item.innerHTML = `
-            <span>${hecho ? "✅" : "❌"}</span>
-            <span>${nombre}</span>
+    if (
+        id === "life" &&
+        app.economia.vidas >=
+            app.config.vidasMaximas
+    ) {
+
+        toast(
+            "Ya tienes todas tus vidas",
+            "info"
+        );
+
+        return;
+    }
+
+    app.economia.monedas -=
+        item.price;
+
+    if (id === "life") {
+        app.economia.vidas++;
+    }
+
+    if (id === "shield") {
+        app.economia.protectores++;
+    }
+
+    if (id === "pass") {
+        app.economia.pases++;
+    }
+
+    if (id === "daypass") {
+        app.economia.pasesDia++;
+    }
+
+    save();
+
+    renderStore();
+
+    updateDashboard();
+
+    toast(
+        `${item.icon} ${item.name} comprado`,
+        "success"
+    );
+}
+
+function renderStore() {
+
+    const box =
+        $("tiendaItems");
+
+    if (!box) {
+        return;
+    }
+
+    box.innerHTML = "";
+
+    STORE_ITEMS.forEach(item => {
+
+        const el =
+            document.createElement(
+                "div"
+            );
+
+        el.className =
+            "store-item";
+
+        el.innerHTML = `
+
+            <div>
+
+                <strong>
+                    ${item.icon}
+                    ${escapeHtml(
+                        item.name
+                    )}
+                </strong>
+
+                <small>
+                    ${escapeHtml(
+                        item.description
+                    )}
+                </small>
+
+            </div>
+
+            <button class="mini-btn">
+                ${item.price} $
+            </button>
         `;
-        contenedor.appendChild(item);
+
+        el.querySelector(
+            "button"
+        ).addEventListener(
+            "click",
+            () =>
+                buyItem(item.id)
+        );
+
+        box.appendChild(el);
     });
 
-    // Nota
-    const notaDiv = document.getElementById("detalleNota");
-    if (dia.nota && dia.nota.trim() !== "") {
-        notaDiv.textContent = "📝 " + dia.nota;
-        notaDiv.classList.remove("oculto");
-    } else {
-        notaDiv.classList.add("oculto");
+    if ($("monedas")) {
+        $("monedas").textContent =
+            app.economia.monedas;
     }
 
-    // Mostrar modal
-    document.getElementById("modalDetalle").classList.remove("oculto");
-}
-
-function cerrarDetalle() {
-    document.getElementById("modalDetalle").classList.add("oculto");
-}
-
-// Cerrar al hacer clic fuera del modal
-document.getElementById("modalDetalle")?.addEventListener("click", (e) => {
-    if (e.target.id === "modalDetalle") {
-        cerrarDetalle();
+    if ($("vidas")) {
+        $("vidas").textContent =
+            app.economia.vidas;
     }
-});
 
-crearCalendario();
+    if ($("protectores")) {
+        $("protectores").textContent =
+            app.economia.protectores;
+    }
 
-
-/*==================================================
-        PARTE 4: ESTADÍSTICAS Y GRÁFICAS
-==================================================*/
-
-let graficaGeneral = null;
-let tipoGraficaActual = "semana";
-
-function cambiarGrafica(tipo) {
-    tipoGraficaActual = tipo;
-    actualizarGrafica();
+    if ($("pases")) {
+        $("pases").textContent =
+            app.economia.pases;
+    }
 }
 
-function actualizarGrafica() {
-    let datos;
-    if (tipoGraficaActual === "semana") datos = datosSemana();
-    if (tipoGraficaActual === "mes") datos = datosMes();
-    if (tipoGraficaActual === "año") datos = datosAño();
-    crearGrafica(datos.labels, datos.valores, datos.titulo);
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+
+function updateDashboard() {
+
+    const record =
+        getRecord();
+
+    const habits =
+        getTodayHabits();
+
+    if ($("porcentajeHoy")) {
+        $("porcentajeHoy").textContent =
+            `${record?.porcentaje || 0}%`;
+    }
+
+    if ($("contadorHabitos")) {
+        $("contadorHabitos").textContent =
+            `${record?.completados || 0} / ${habits.length}`;
+    }
+
+    if ($("racha")) {
+        $("racha").textContent =
+            `🔥 ${app.racha.actual || 0}`;
+    }
+
+    if ($("mejorRacha")) {
+        $("mejorRacha").textContent =
+            app.racha.mejor || 0;
+    }
+
+    if ($("monedasTop")) {
+        $("monedasTop").textContent =
+            `${app.economia.monedas} $`;
+    }
+
+    if ($("vidasTop")) {
+
+        $("vidasTop").textContent =
+            `${
+                "❤️".repeat(
+                    app.economia.vidas
+                )
+            }${
+                "🖤".repeat(
+                    Math.max(
+                        0,
+                        app.config.vidasMaximas -
+                        app.economia.vidas
+                    )
+                )
+            }`;
+    }
+
+    if ($("screenTotalCard")) {
+
+        $("screenTotalCard").textContent =
+            formatMinutes(
+                totalScreenMinutes(
+                    hoyISO()
+                )
+            );
+    }
+
+    if ($("fraseDesempeno")) {
+
+        $("fraseDesempeno").textContent =
+            performancePhrase(
+                record?.porcentaje || 0
+            );
+    }
 }
 
-function crearGrafica(labels, valores, titulo) {
-    const ctx = document.getElementById("graficaGeneral");
-    if (!ctx) return;
-    if (graficaGeneral) graficaGeneral.destroy();
+function actualizarDashboard() {
+    updateDashboard();
+}
 
-    const esClaro = document.body.classList.contains("claro");
 
-    graficaGeneral = new Chart(ctx, {
-        type: "line",
-        data: {
-            labels,
-            datasets: [{
-                label: titulo,
-                data: valores,
-                tension: 0.4,
-                borderWidth: 3,
-                fill: true,
-                backgroundColor: esClaro ? "rgba(37,99,235,.15)" : "rgba(59,130,246,.2)",
-                borderColor: esClaro ? "#2563eb" : "#3b82f6",
-                pointBackgroundColor: esClaro ? "#2563eb" : "#60a5fa",
-                pointBorderColor: "#fff",
-                pointRadius: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    labels: {
-                        color: esClaro ? "#0f172a" : "#e2e8f0"
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    ticks: { color: esClaro ? "#334155" : "#94a3b8" },
-                    grid: { color: esClaro ? "rgba(0,0,0,.06)" : "rgba(255,255,255,.08)" }
-                },
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: { color: esClaro ? "#334155" : "#94a3b8" },
-                    grid: { color: esClaro ? "rgba(0,0,0,.06)" : "rgba(255,255,255,.08)" }
-                }
+/* =========================================================
+   FRASES
+   ========================================================= */
+
+function performancePhrase(percent) {
+
+    const bad = [
+
+        "Hoy fue un día flojo. Mañana tienes otra oportunidad.",
+
+        "Un mal día no borra tu progreso. Vuelve a intentarlo.",
+
+        "No necesitas perfección; necesitas volver a empezar."
+
+    ];
+
+    const medium = [
+
+        "Vas por buen camino. Mantén el ritmo.",
+
+        "Más de la mitad está hecho. Sigue avanzando.",
+
+        "La constancia se construye con días como este."
+
+    ];
+
+    const good = [
+
+        "Excelente trabajo. Estás construyendo una gran racha. 🔥",
+
+        "Muy buen día. No sueltes el ritmo. 💪",
+
+        "Gran desempeño. Sigue así. 🏆"
+
+    ];
+
+    const list =
+        percent < 50
+            ? bad
+            : percent < 80
+                ? medium
+                : good;
+
+    return list[
+        new Date().getDate() %
+        list.length
+    ];
+}
+
+
+/* =========================================================
+   CALENDARIO
+   ========================================================= */
+
+function createCalendar() {
+
+    const box = $("calendar");
+
+    if (!box) {
+        return;
+    }
+
+    box.innerHTML = "";
+    box.className = "calendar-grid";
+
+    const year =
+        fechaCalendario.getFullYear();
+
+    const month =
+        fechaCalendario.getMonth();
+
+    if ($("mesActual")) {
+
+        $("mesActual").textContent =
+            `${MONTH_NAMES[month]} ${year}`;
+
+    }
+
+    const nombresDias = [
+        "Lun",
+        "Mar",
+        "Mié",
+        "Jue",
+        "Vie",
+        "Sáb",
+        "Dom"
+    ];
+
+    nombresDias.forEach(nombre => {
+
+        const el =
+            document.createElement("div");
+
+        el.className =
+            "calendar-day-name";
+
+        el.textContent =
+            nombre;
+
+        box.appendChild(el);
+
+    });
+
+    let firstDay =
+        new Date(
+            year,
+            month,
+            1
+        ).getDay();
+
+    firstDay =
+        firstDay === 0
+            ? 6
+            : firstDay - 1;
+
+    for (
+        let i = 0;
+        i < firstDay;
+        i++
+    ) {
+
+        const empty =
+            document.createElement("div");
+
+        empty.className =
+            "calendar-day empty";
+
+        box.appendChild(empty);
+
+    }
+
+    const days =
+        new Date(
+            year,
+            month + 1,
+            0
+        ).getDate();
+
+    const today =
+        hoyISO();
+
+    for (
+        let day = 1;
+        day <= days;
+        day++
+    ) {
+
+        const iso =
+            `${year}-${pad(month + 1)}-${pad(day)}`;
+
+        const record =
+            getRecord(iso);
+
+        const el =
+            document.createElement("div");
+
+        el.className =
+            "calendar-day";
+
+        /* ======================================
+           PORCENTAJE
+        ====================================== */
+
+        const percent =
+            record?.porcentaje;
+
+        if (percent != null) {
+
+            if (percent >= 80) {
+
+                el.classList.add(
+                    "day-good"
+                );
+
+            } else if (percent >= 50) {
+
+                el.classList.add(
+                    "day-medium"
+                );
+
+            } else {
+
+                el.classList.add(
+                    "day-bad"
+                );
+
             }
+
+        } else {
+
+            el.classList.add(
+                "day-empty"
+            );
+
         }
-    });
+
+        /* ======================================
+           HOY
+        ====================================== */
+
+        if (iso === today) {
+
+            el.classList.add(
+                "today"
+            );
+
+        }
+
+        /* ======================================
+           INFORMACIÓN EXTRA
+        ====================================== */
+
+        let justified = 0;
+
+        let completed = 0;
+
+        let total = 0;
+
+        if (record) {
+
+            const habits =
+                getHabitsForDate(iso);
+
+            total =
+                habits.length;
+
+            habits.forEach(habit => {
+
+                const status =
+                    record.habitos?.[
+                        habit.id
+                    ];
+
+                if (
+                    status?.estado ===
+                    "hecho"
+                ) {
+
+                    completed++;
+
+                }
+
+                if (
+                    status?.estado ===
+                    "justificado"
+                ) {
+
+                    justified++;
+
+                }
+
+            });
+
+        }
+
+        el.innerHTML = `
+
+            <div class="calendar-number">
+                ${day}
+            </div>
+
+            <div class="calendar-percent">
+                ${
+                    percent == null
+                        ? "—"
+                        : `${percent}%`
+                }
+            </div>
+
+            ${
+                record
+                    ? `
+                        <div class="calendar-mini">
+                            
+                            ${
+                                justified
+                                    ? `  📝${justified}`
+                                    : ""
+                            }
+                        </div>
+                    `
+                    : ""
+            }
+
+        `;
+
+        el.title =
+            record
+                ? `${formatDate(iso)} · ${percent}%`
+                : `${formatDate(iso)} · Sin registro`;
+
+        /* ======================================
+           ABRIR DETALLE
+        ====================================== */
+
+        el.addEventListener(
+            "click",
+            () => showDayDetail(iso)
+        );
+
+        box.appendChild(el);
+
+    }
 }
 
-function datosSemana() {
-    const hoy = new Date();
-    const labels = [];
-    const valores = [];
-    const nombres = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+/* =========================================================
+   DETALLE DEL DÍA
+   ========================================================= */
 
-    for (let i = 6; i >= 0; i--) {
-        const fecha = new Date(hoy);
-        fecha.setDate(hoy.getDate() - i);
-        const fechaStr = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, "0")}-${String(fecha.getDate()).padStart(2, "0")}`;
-        labels.push(`${nombres[fecha.getDay()]} ${fecha.getDate()}`);
-        const registro = app.historial.find(d => d.fecha === fechaStr);
-        valores.push(registro ? registro.porcentaje : 0);
+function showDayDetail(iso) {
+
+    const record = getRecord(iso);
+
+    if (!record) {
+        toast("No hay registro este día", "info");
+        return;
     }
 
-    return { labels, valores, titulo: "Últimos 7 días" };
+    if ($("detalleFecha")) {
+        $("detalleFecha").textContent = `📅 ${formatDate(iso)}`;
+    }
+
+    if ($("detallePorcentaje")) {
+        $("detallePorcentaje").textContent = `${record.porcentaje}%`;
+    }
+
+    const list = $("detalleHabitos");
+
+    if (list) {
+        list.innerHTML = "";
+
+        getHabitsForDate(iso).forEach(habit => {
+
+            const status = record.habitos?.[habit.id] || {
+                estado: "pendiente"
+            };
+
+            const icon =
+                status.estado === "hecho"       ? "✅" :
+                status.estado === "justificado" ? "📝" :
+                status.estado === "pase"        ? "🎫" :
+                                                  "❌";
+
+            const hasNote = (status.estado === "justificado" || status.estado === "pase") && status.nota;
+
+            const row = document.createElement("div");
+            row.className = `detail-item ${status.estado}`;
+
+            row.innerHTML = `
+                <div class="detail-main" style="display:flex; align-items:center; gap:10px; width:100%; cursor:${hasNote ? "pointer" : "default"};">
+                    <span>${icon}</span>
+                    <span style="flex:1;">${escapeHtml(habit.nombre)}</span>
+                    ${hasNote ? `<span class="detail-toggle" style="font-size:12px; opacity:0.6;">▼</span>` : ""}
+                </div>
+                ${hasNote ? `
+                    <div class="detail-note oculto" style="margin-top:8px; width:100%;">
+                        <div class="justification">
+                            ${status.estado === "justificado" ? "📝" : "🎫"} ${escapeHtml(status.nota)}
+                        </div>
+                    </div>
+                ` : ""}
+            `;
+
+            // Solo si tiene justificación, al hacer clic se despliega
+            if (hasNote) {
+                const main = row.querySelector(".detail-main");
+                const note = row.querySelector(".detail-note");
+                const toggle = row.querySelector(".detail-toggle");
+
+                main.addEventListener("click", () => {
+                    const isHidden = note.classList.contains("oculto");
+
+                    note.classList.toggle("oculto", !isHidden);
+                    toggle.textContent = isHidden ? "▲" : "▼";
+                });
+            }
+
+            list.appendChild(row);
+        });
+    }
+
+    if ($("detalleNota")) {
+        $("detalleNota").textContent = record.nota
+            ? `📝 ${record.nota}`
+            : "";
+
+        $("detalleNota").classList.toggle("oculto", !record.nota);
+    }
+
+    $("modalDetalle")?.classList.remove("oculto");
 }
 
-function datosMes() {
-    const hoy = new Date();
-    const año = hoy.getFullYear();
-    const mes = hoy.getMonth();
-    const diasEnMes = new Date(año, mes + 1, 0).getDate();
+function closeDetail() {
+
+    $("modalDetalle")
+        ?.classList
+        .add("oculto");
+}
+
+
+/* =========================================================
+   GRÁFICAS
+   ========================================================= */
+
+function chartData(
+    type = "semana"
+) {
+
+    const today =
+        dateObj(
+            hoyISO()
+        );
 
     const labels = [];
-    const valores = [];
+    const values = [];
 
-    for (let d = 1; d <= diasEnMes; d++) {
-        const fechaStr = `${año}-${String(mes + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        labels.push(String(d));
-        const registro = app.historial.find(r => r.fecha === fechaStr);
-        valores.push(registro ? registro.porcentaje : 0);
+    if (type === "mes") {
+
+        const year =
+            today.getFullYear();
+
+        const month =
+            today.getMonth();
+
+        const days =
+            new Date(
+                year,
+                month + 1,
+                0
+            ).getDate();
+
+        for (
+            let day = 1;
+            day <= days;
+            day++
+        ) {
+
+            labels.push(day);
+
+            values.push(
+                getRecord(
+                    `${year}-${pad(month + 1)}-${pad(day)}`
+                )?.porcentaje || 0
+            );
+        }
+
+        return {
+            labels,
+            values,
+            title:
+                `${MONTH_NAMES[month]} ${year}`
+        };
+    }
+
+    if (type === "año") {
+
+        const year =
+            today.getFullYear();
+
+        for (
+            let month = 0;
+            month < 12;
+            month++
+        ) {
+
+            const days =
+                new Date(
+                    year,
+                    month + 1,
+                    0
+                ).getDate();
+
+            let sum = 0;
+
+            for (
+                let day = 1;
+                day <= days;
+                day++
+            ) {
+
+                sum +=
+                    getRecord(
+                        `${year}-${pad(month + 1)}-${pad(day)}`
+                    )?.porcentaje || 0;
+            }
+
+            labels.push(
+                MONTH_SHORT[month]
+            );
+
+            values.push(
+                Math.round(
+                    sum / days
+                )
+            );
+        }
+
+        return {
+            labels,
+            values,
+            title:
+                `Año ${year}`
+        };
+    }
+
+    for (
+        let i = 6;
+        i >= 0;
+        i--
+    ) {
+
+        const d =
+            new Date(today);
+
+        d.setDate(
+            today.getDate() - i
+        );
+
+        const iso =
+            isoFromDate(d);
+
+        labels.push(
+            `${
+                [
+                    "Dom",
+                    "Lun",
+                    "Mar",
+                    "Mié",
+                    "Jue",
+                    "Vie",
+                    "Sáb"
+                ][d.getDay()]
+            } ${d.getDate()}`
+        );
+
+        values.push(
+            getRecord(iso)
+                ?.porcentaje || 0
+        );
     }
 
     return {
         labels,
-        valores,
-        titulo: `${nombresMeses[mes]} ${año}`
+        values,
+        title:
+            "Últimos 7 días"
     };
 }
 
-function datosAño() {
-    const hoy = new Date();
-    const año = hoy.getFullYear();
-    const nombresMesesCortos = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+function getChartTextColor() {
 
-    const labels = [];
-    const valores = [];
-
-    for (let m = 0; m < 12; m++) {
-        labels.push(nombresMesesCortos[m]);
-        const diasEnMes = new Date(año, m + 1, 0).getDate();
-        let suma = 0;
-
-        for (let d = 1; d <= diasEnMes; d++) {
-            const fechaStr = `${año}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-            const registro = app.historial.find(r => r.fecha === fechaStr);
-            suma += registro ? registro.porcentaje : 0;
-        }
-
-        valores.push(Math.round(suma / diasEnMes));
-    }
-
-    return { labels, valores, titulo: `Año ${año} (por meses)` };
+    return document.body.classList.contains(
+        "light"
+    )
+        ? "#1f2328"
+        : "#f0f6fc";
 }
 
-setTimeout(() => actualizarGrafica(), 500);
+function updateGeneralChart(
+    type = "semana"
+) {
 
+    const canvas =
+        $("graficaGeneral");
 
-/*==================================================
-        PARTE 5: ESTADÍSTICAS POR HÁBITO
-==================================================*/
-
-let graficaHabito = null;
-const selector = document.getElementById("selectorHabito");
-
-function crearSelectorHabitos() {
-    if (!selector) return;
-    selector.innerHTML = `<option value="">Selecciona un hábito</option>`;
-    app.habitos.forEach((habito, index) => {
-        const opcion = document.createElement("option");
-        opcion.value = index;
-        opcion.textContent = habito.nombre;
-        selector.appendChild(opcion);
-    });
-}
-
-selector?.addEventListener("change", () => {
-    const index = selector.value;
-    if (index === "") return;
-    analizarHabito(app.habitos[index].nombre);
-});
-
-function analizarHabito(nombre) {
-    let veces = 0;
-    app.historial.forEach(dia => {
-        if (dia.habitos[nombre]) veces++;
-    });
-
-    const porcentaje = app.historial.length === 0 ? 0 : Math.round((veces / app.historial.length) * 100);
-
-    document.getElementById("totalHabito").textContent = veces;
-    document.getElementById("porcentajeHabito").textContent = porcentaje + "%";
-    document.getElementById("rachaHabito").textContent = calcularRachaHabito(nombre);
-    crearGraficaHabito(nombre);
-}
-
-function calcularRachaHabito(nombre) {
-    let actual = 0, mejor = 0;
-    const fechas = [...app.historial].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-
-    fechas.forEach(dia => {
-        if (dia.habitos[nombre]) {
-            actual++;
-            if (actual > mejor) mejor = actual;
-        } else {
-            actual = 0;
-        }
-    });
-    return mejor;
-}
-
-function crearGraficaHabito(nombre) {
-    const ctx = document.getElementById("graficaHabito");
-    if (!ctx) return;
-    if (graficaHabito) graficaHabito.destroy();
-
-    const esClaro = document.body.classList.contains("claro");
-
-    graficaHabito = new Chart(ctx, {
-        type: "bar",
-        data: {
-            labels: app.historial.map(d => d.fecha),
-            datasets: [{
-                label: nombre,
-                data: app.historial.map(d => d.habitos[nombre] ? 100 : 0),
-                borderRadius: 8,
-                backgroundColor: esClaro ? "#16a34a" : "#22c55e"
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    labels: { color: esClaro ? "#0f172a" : "#e2e8f0" }
-                }
-            },
-            scales: {
-                x: {
-                    ticks: { color: esClaro ? "#334155" : "#94a3b8" },
-                    grid: { color: esClaro ? "rgba(0,0,0,.06)" : "rgba(255,255,255,.08)" }
-                },
-                y: {
-                    min: 0,
-                    max: 100,
-                    ticks: {
-                        color: esClaro ? "#334155" : "#94a3b8",
-                        callback: v => v + "%"
-                    },
-                    grid: { color: esClaro ? "rgba(0,0,0,.06)" : "rgba(255,255,255,.08)" }
-                }
-            }
-        }
-    });
-}
-
-crearSelectorHabitos();
-
-
-/*==================================================
-        PARTE 6: CONFIGURACIÓN
-==================================================*/
-
-document.getElementById("exportar")?.addEventListener("click", () => {
-    const datos = JSON.stringify(app, null, 2);
-    const archivo = new Blob([datos], { type: "application/json" });
-    const url = URL.createObjectURL(archivo);
-    const enlace = document.createElement("a");
-    enlace.href = url;
-    enlace.download = "habit-tracker-backup.json";
-    enlace.click();
-    URL.revokeObjectURL(url);
-    mostrarToast("Datos exportados", "success");
-});
-
-const archivoImportar = document.getElementById("archivoImportar");
-document.getElementById("importar")?.addEventListener("click", () => archivoImportar?.click());
-
-archivoImportar?.addEventListener("change", evento => {
-    const archivo = evento.target.files[0];
-    if (!archivo) return;
-
-    const lector = new FileReader();
-    lector.onload = e => {
-        try {
-            const datos = JSON.parse(e.target.result);
-            app.habitos = datos.habitos || [];
-            app.historial = datos.historial || [];
-            app.racha = datos.racha || { actual: 0, mejor: 0, ultimaFecha: null };
-            guardarDatos();
-            location.reload();
-        } catch {
-            mostrarToast("Error al importar el archivo", "error");
-        }
-    };
-    lector.readAsText(archivo);
-});
-
-document.getElementById("reiniciar")?.addEventListener("click", async () => {
-    const ok = await confirmar("¿Seguro que quieres borrar todos los datos?");
-    if (!ok) return;
-    localStorage.removeItem("habitTracker");
-    location.reload();
-});
-
-
-//==================================================
-// MODO OSCURO / CLARO
-//==================================================
-
-const botonModo = document.getElementById("modo");
-let modo = localStorage.getItem("modo") || "oscuro";
-
-function aplicarModo() {
-    if (modo === "claro") document.body.classList.add("claro");
-    else document.body.classList.remove("claro");
-}
-
-botonModo?.addEventListener("click", () => {
-    modo = modo === "oscuro" ? "claro" : "oscuro";
-    localStorage.setItem("modo", modo);
-    aplicarModo();
-    actualizarGrafica();          // ← redibuja la general
-    // si hay un hábito seleccionado, también:
-    const index = selector?.value;
-    if (index !== "" && index != null) {
-        analizarHabito(app.habitos[index].nombre);
-    }
-    mostrarToast(modo === "claro" ? "Modo claro activado" : "Modo oscuro activado", "info");
-});
-
-//==================================================
-// CONFIG: NOMBRE + RACHA MÍNIMA
-//==================================================
-
-function actualizarSaludo() {
-    const el = document.getElementById("saludo");
-    if (!el) return;
-
-    const nombre = (app.config?.nombre || "").trim();
-    const hora = new Date().getHours();
-    const base = hora < 12 ? "Buenos días" : hora < 19 ? "Buenas tardes" : "Buenas noches";
-
-    el.textContent = nombre ? `${base}, ${nombre} 👋` : `${base} 👋`;
-}
-
-function actualizarBotonesRacha() {
-    const actual = app.config?.rachaMinima ?? 80;
-    document.querySelectorAll(".btn-racha").forEach(btn => {
-        btn.classList.toggle("activo", Number(btn.dataset.min) === actual);
-    });
-}
-
-function inicializarConfigUI() {
-    // Nombre
-    const inputNombre = document.getElementById("inputNombre");
-    if (inputNombre) inputNombre.value = app.config?.nombre || "";
-
-    document.getElementById("guardarNombre")?.addEventListener("click", () => {
-        const nombre = document.getElementById("inputNombre")?.value.trim() || "";
-        app.config.nombre = nombre;
-        guardarDatos();
-        actualizarSaludo();
-        mostrarToast(nombre ? `Hola, ${nombre}` : "Nombre borrado", "success");
-    });
-
-    // Racha mínima
-    document.querySelectorAll(".btn-racha").forEach(btn => {
-        btn.addEventListener("click", () => {
-            app.config.rachaMinima = Number(btn.dataset.min);
-            guardarDatos();
-            actualizarBotonesRacha();
-            mostrarToast(`Racha mínima: ${app.config.rachaMinima}%`, "success");
-        });
-    });
-
-    actualizarBotonesRacha();
-    actualizarSaludo();
-}
-
-// Llamar cuando la app ya cargó datos
-inicializarConfigUI();
-
-//==================================================
-// NOTIFICACIONES / RECORDATORIO DIARIO
-// (mejor compatibilidad móvil + PC)
-//==================================================
-
-function actualizarUINotis() {
-    const btn = document.getElementById("activarNotis");
-    const el = document.getElementById("estadoNotis");
-    const inputHora = document.getElementById("horaRecordatorio");
-
-    const activas = localStorage.getItem("notisActivas") === "1";
-    const hora = localStorage.getItem("horaRecordatorio") || "21:00";
-
-    if (inputHora) inputHora.value = hora;
-
-    if (btn) {
-        if (activas && Notification.permission === "granted") {
-            btn.textContent = "Desactivar recordatorios";
-            btn.classList.add("btn-peligro");
-        } else {
-            btn.textContent = "Activar recordatorios";
-            btn.classList.remove("btn-peligro");
-        }
-    }
-
-    if (!el) return;
-
-    if (!("Notification" in window)) {
-        el.textContent = "Este navegador no soporta notificaciones.";
+    if (
+        !canvas ||
+        typeof Chart ===
+            "undefined"
+    ) {
         return;
     }
 
-    if (Notification.permission === "granted" && activas) {
-        el.textContent = `Recordatorios activos a las ${hora}`;
-    } else if (Notification.permission === "denied") {
-        el.textContent = "Permiso denegado. Actívalo en la configuración del navegador / sitio.";
-    } else {
-        el.textContent = "Recordatorios desactivados";
+    const data =
+        chartData(type);
+
+    graficaGeneral?.destroy();
+
+    graficaGeneral =
+        new Chart(
+            canvas,
+            {
+                type: "line",
+
+                data: {
+
+                    labels:
+                        data.labels,
+
+                    datasets: [
+
+                        {
+                            label:
+                                data.title,
+
+                            data:
+                                data.values,
+
+                            tension:
+                                0.35,
+
+                            fill:
+                                true,
+
+                            borderWidth:
+                                3,
+
+                            backgroundColor:
+                                "rgba(88,166,255,.15)",
+
+                            borderColor:
+                                "#58a6ff",
+
+                            pointRadius:
+                                4
+                        }
+
+                    ]
+                },
+
+                options: {
+
+                    responsive:
+                        true,
+
+                    plugins: {
+
+                        legend: {
+
+                            labels: {
+                                color:
+                                    getChartTextColor()
+                            }
+                        }
+                    },
+
+                    scales: {
+
+                        x: {
+
+                            ticks: {
+                                color:
+                                    getChartTextColor()
+                            }
+                        },
+
+                        y: {
+
+                            beginAtZero:
+                                true,
+
+                            max:
+                                100,
+
+                            ticks: {
+
+                                color:
+                                    getChartTextColor(),
+
+                                callback:
+                                    value =>
+                                        `${value}%`
+                            }
+                        }
+                    }
+                }
+            }
+        );
+}
+
+
+/* =========================================================
+   GRÁFICA POR HÁBITO
+   ========================================================= */
+
+function populateHabitSelector() {
+
+    const select =
+        $("selectorHabito");
+
+    if (!select) {
+        return;
+    }
+
+    const old =
+        select.value;
+
+    select.innerHTML =
+        `
+            <option value="">
+                Selecciona una actividad
+            </option>
+        `;
+
+    app.habitos.forEach(
+        habit => {
+
+            const option =
+                document.createElement(
+                    "option"
+                );
+
+            option.value =
+                habit.id;
+
+            option.textContent =
+                habit.nombre;
+
+            select.appendChild(
+                option
+            );
+        }
+    );
+
+    if (
+        app.habitos.some(
+            h => h.id === old
+        )
+    ) {
+        select.value = old;
     }
 }
 
-function pedirPermisoNotificaciones() {
-    if (!("Notification" in window)) {
-        mostrarToast("Tu navegador no soporta notificaciones", "warning");
-        return Promise.resolve(false);
+function analyzeHabit(id) {
+
+    if (!id) {
+
+        if ($("totalHabito")) {
+            $("totalHabito").textContent =
+                "0";
+        }
+
+        if ($("porcentajeHabito")) {
+            $("porcentajeHabito").textContent =
+                "0%";
+        }
+
+        if ($("rachaHabito")) {
+            $("rachaHabito").textContent =
+                "0";
+        }
+
+        graficaHabito?.destroy();
+
+        graficaHabito =
+            null;
+
+        return;
     }
 
-    if (Notification.permission === "granted") {
-        return Promise.resolve(true);
+    const habit =
+        app.habitos.find(
+            h => h.id === id
+        );
+
+    if (!habit) {
+        return;
     }
 
-    if (Notification.permission === "denied") {
-        mostrarToast("Permiso bloqueado. Actívalo en el navegador", "warning");
-        return Promise.resolve(false);
+    const applicable =
+        app.historial.filter(
+            r =>
+                getHabitsForDate(
+                    r.fecha
+                ).some(
+                    h => h.id === id
+                )
+        );
+
+    const completed =
+        applicable.filter(
+            r =>
+                r.habitos?.[id]
+                    ?.estado ===
+                "hecho"
+        ).length;
+
+    const percent =
+        applicable.length
+            ? Math.round(
+                completed /
+                applicable.length *
+                100
+            )
+            : 0;
+
+    if ($("totalHabito")) {
+        $("totalHabito").textContent =
+            completed;
     }
 
-    // Tiene que ejecutarse dentro de un clic del usuario (móvil)
-    return Notification.requestPermission().then((p) => p === "granted");
+    if ($("porcentajeHabito")) {
+        $("porcentajeHabito").textContent =
+            `${percent}%`;
+    }
+
+    if ($("rachaHabito")) {
+        $("rachaHabito").textContent =
+            calculateHabitStreak(id);
+    }
+
+    const canvas =
+        $("graficaHabito");
+
+    if (
+        !canvas ||
+        typeof Chart ===
+            "undefined"
+    ) {
+        return;
+    }
+
+    graficaHabito?.destroy();
+
+    graficaHabito =
+        new Chart(
+            canvas,
+            {
+                type: "bar",
+
+                data: {
+
+                    labels:
+                        applicable.map(
+                            r => r.fecha
+                        ),
+
+                    datasets: [
+
+                        {
+                            label:
+                                habit.nombre,
+
+                            data:
+                                applicable.map(
+                                    r =>
+                                        r.habitos?.[id]
+                                            ?.estado ===
+                                        "hecho"
+                                            ? 100
+                                            : 0
+                                ),
+
+                            backgroundColor:
+                                "#3fb950",
+
+                            borderRadius:
+                                6
+                        }
+
+                    ]
+                },
+
+                options: {
+
+                    responsive:
+                        true,
+
+                    scales: {
+
+                        y: {
+
+                            min:
+                                0,
+
+                            max:
+                                100,
+
+                            ticks: {
+
+                                callback:
+                                    value =>
+                                        `${value}%`
+                            }
+                        }
+                    }
+                }
+            }
+        );
 }
 
-function iconoNotificacion() {
-    // URL absoluta: en móvil falla menos que "h.png"
-    try {
-        return new URL("h.png", window.location.href).href;
-    } catch {
-        return "h.png";
-    }
-}
+function calculateHabitStreak(id) {
 
-async function enviarNotificacion(titulo, cuerpo) {
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
+    const records =
+        [...app.historial]
+            .sort(
+                (a, b) =>
+                    a.fecha.localeCompare(
+                        b.fecha
+                    )
+            );
 
-    const opciones = {
-        body: cuerpo,
-        icon: iconoNotificacion(),
-        badge: iconoNotificacion(),
-        tag: "habit-reminder",
-        renotify: true
-    };
+    let current = 0;
+    let best = 0;
+    let previous = null;
 
-    // 1) Preferir Service Worker (mejor en Android)
-    try {
-        if ("serviceWorker" in navigator) {
-            const reg = await navigator.serviceWorker.ready;
-            if (reg && reg.showNotification) {
-                await reg.showNotification(titulo, opciones);
+    records.forEach(
+        record => {
+
+            if (
+                !getHabitsForDate(
+                    record.fecha
+                ).some(
+                    h => h.id === id
+                )
+            ) {
                 return;
             }
+
+            if (
+                record.habitos?.[id]
+                    ?.estado ===
+                "hecho"
+            ) {
+
+                if (previous) {
+
+                    const diff =
+                        Math.round(
+                            (
+                                dateObj(
+                                    record.fecha
+                                ) -
+                                dateObj(previous)
+                            ) / 86400000
+                        );
+
+                    current =
+                        diff === 1
+                            ? current + 1
+                            : 1;
+
+                } else {
+
+                    current = 1;
+                }
+
+                previous =
+                    record.fecha;
+
+                best =
+                    Math.max(
+                        best,
+                        current
+                    );
+
+            } else {
+
+                current = 0;
+
+                previous =
+                    record.fecha;
+            }
         }
-    } catch (e) {
-        console.log("SW notification falló:", e);
+    );
+
+    return best;
+}
+
+
+/* =========================================================
+   DÍAS DE ACTIVIDADES
+   ========================================================= */
+
+function editDays(selector) {
+
+    return [
+        ...document.querySelectorAll(
+            `${selector}.active`
+        )
+    ].map(
+        b => b.dataset.dia
+    );
+}
+
+function toggleDayButton(
+    button,
+    selector
+) {
+
+    const day =
+        button.dataset.dia;
+
+    if (day === "todos") {
+
+        document
+            .querySelectorAll(
+                selector
+            )
+            .forEach(
+                b =>
+                    b.classList.remove(
+                        "active"
+                    )
+            );
+
+        button.classList.add(
+            "active"
+        );
+
+        return;
     }
 
-    // 2) Fallback clásico (PC / algunos móviles)
-    try {
-        const n = new Notification(titulo, opciones);
-        n.onclick = () => {
-            window.focus();
-            n.close();
+    document
+        .querySelector(
+            `${selector}[data-dia="todos"]`
+        )
+        ?.classList.remove(
+            "active"
+        );
+
+    button.classList.toggle(
+        "active"
+    );
+}
+
+function initDayButtons() {
+
+    document
+        .querySelectorAll(
+            ".dia-btn:not(.edit-dia)"
+        )
+        .forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    () =>
+                        toggleDayButton(
+                            button,
+                            ".dia-btn:not(.edit-dia)"
+                        )
+                );
+            }
+        );
+
+    document
+        .querySelectorAll(
+            ".edit-dia"
+        )
+        .forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    () =>
+                        toggleDayButton(
+                            button,
+                            ".edit-dia"
+                        )
+                );
+            }
+        );
+}
+
+
+/* =========================================================
+   AGREGAR ACTIVIDAD
+   ========================================================= */
+
+function addHabit() {
+
+    const name =
+        $("nuevoHabito")
+            ?.value
+            .trim() || "";
+
+    const days =
+        editDays(
+            ".dia-btn:not(.edit-dia)"
+        );
+
+    const duration =
+        Math.max(
+            0,
+            Number(
+                $("nuevaDuracion")
+                    ?.value || 0
+            )
+        );
+
+    const maxTime =
+        $("nuevaHoraMax")
+            ?.value || "";
+
+    if (
+        !name ||
+        !days.length
+    ) {
+
+        toast(
+            "Escribe un nombre y selecciona al menos un día",
+            "warning"
+        );
+
+        return;
+    }
+
+    app.habitos.push({
+
+        id:
+            uid("habit"),
+
+        nombre:
+            name,
+
+        dias:
+            days,
+
+        duracion:
+            duration,
+
+        horaMax:
+            maxTime,
+
+        tipo:
+            duration > 0
+                ? "timer"
+                : "check"
+
+    });
+
+    save();
+
+    if ($("nuevoHabito")) {
+        $("nuevoHabito").value =
+            "";
+    }
+
+    if ($("nuevaDuracion")) {
+        $("nuevaDuracion").value =
+            "0";
+    }
+
+    if ($("nuevaHoraMax")) {
+        $("nuevaHoraMax").value =
+            "";
+    }
+
+    document
+        .querySelectorAll(
+            ".dia-btn:not(.edit-dia)"
+        )
+        .forEach(
+            b =>
+                b.classList.remove(
+                    "active"
+                )
+        );
+
+    actualizarTodo();
+
+    toast(
+        "Actividad añadida",
+        "success"
+    );
+}
+
+
+/* =========================================================
+   EDITOR DE ACTIVIDADES
+   ========================================================= */
+
+function renderEditor() {
+
+    const box =
+        $("listaEditar");
+
+    if (!box) {
+        return;
+    }
+
+    box.innerHTML = "";
+
+    app.habitos.forEach(
+        (habit, index) => {
+
+            const item =
+                document.createElement(
+                    "div"
+                );
+
+            item.className =
+                "editor-item";
+
+            item.draggable =
+                true;
+
+            item.dataset.index =
+                index;
+
+            item.innerHTML = `
+
+                <div class="editor-info">
+
+                    <strong>
+                        ${escapeHtml(
+                            habit.nombre
+                        )}
+                    </strong>
+
+                    <small>
+                        ${
+                            habit.dias.includes(
+                                "todos"
+                            )
+                                ? "Todos"
+                                : habit.dias.join(
+                                    ", "
+                                )
+                        }
+
+                        ·
+
+                        ${
+                            habit.duracion
+                                ? `${habit.duracion} min`
+                                : "sin temporizador"
+                        }
+
+                        ${
+                            habit.horaMax
+                                ? ` · límite ${habit.horaMax}`
+                                : ""
+                        }
+
+                    </small>
+
+                </div>
+
+                <div class="editor-actions">
+
+                    <button class="secondary edit-button">
+                        Editar
+                    </button>
+
+                    <button class="danger delete-button">
+                        Eliminar
+                    </button>
+
+                </div>
+            `;
+
+            item
+                .querySelector(
+                    ".edit-button"
+                )
+                .addEventListener(
+                    "click",
+                    () =>
+                        openEdit(index)
+                );
+
+            item
+                .querySelector(
+                    ".delete-button"
+                )
+                .addEventListener(
+                    "click",
+                    () =>
+                        deleteHabit(index)
+                );
+
+            item.addEventListener(
+                "dragstart",
+                e => {
+
+                    e.dataTransfer.setData(
+                        "text/plain",
+                        String(index)
+                    );
+
+                    item.classList.add(
+                        "dragging"
+                    );
+                }
+            );
+
+            item.addEventListener(
+                "dragend",
+                () =>
+                    item.classList.remove(
+                        "dragging"
+                    )
+            );
+
+            item.addEventListener(
+                "dragover",
+                e =>
+                    e.preventDefault()
+            );
+
+            item.addEventListener(
+                "drop",
+                e => {
+
+                    e.preventDefault();
+
+                    const from =
+                        Number(
+                            e.dataTransfer.getData(
+                                "text/plain"
+                            )
+                        );
+
+                    const to =
+                        Number(
+                            item.dataset.index
+                        );
+
+                    if (
+                        from === to ||
+                        Number.isNaN(from)
+                    ) {
+                        return;
+                    }
+
+                    const moved =
+                        app.habitos.splice(
+                            from,
+                            1
+                        )[0];
+
+                    app.habitos.splice(
+                        to,
+                        0,
+                        moved
+                    );
+
+                    save();
+
+                    renderEditor();
+                    renderHabits();
+                    populateHabitSelector();
+
+                    toast(
+                        "Actividades reordenadas",
+                        "success"
+                    );
+                }
+            );
+
+            box.appendChild(
+                item
+            );
+        }
+    );
+}
+
+
+/* =========================================================
+   EDITAR ACTIVIDAD
+   ========================================================= */
+
+function openEdit(index) {
+
+    const habit =
+        app.habitos[index];
+
+    if (!habit) {
+        return;
+    }
+
+    indiceEditando =
+        index;
+
+    if ($("editarNombre")) {
+        $("editarNombre").value =
+            habit.nombre;
+    }
+
+    if ($("editarDuracion")) {
+        $("editarDuracion").value =
+            habit.duracion || 0;
+    }
+
+    if ($("editarHoraMax")) {
+        $("editarHoraMax").value =
+            habit.horaMax || "";
+    }
+
+    document
+        .querySelectorAll(
+            ".edit-dia"
+        )
+        .forEach(
+            button =>
+                button.classList.toggle(
+                    "active",
+                    habit.dias.includes(
+                        button.dataset.dia
+                    )
+                )
+        );
+
+    $("modalEditar")
+        ?.classList
+        .remove("oculto");
+}
+
+function closeEdit() {
+
+    $("modalEditar")
+        ?.classList
+        .add("oculto");
+
+    indiceEditando =
+        null;
+}
+
+function saveEdit() {
+
+    if (
+        indiceEditando === null
+    ) {
+        return;
+    }
+
+    const habit =
+        app.habitos[
+            indiceEditando
+        ];
+
+    const name =
+        $("editarNombre")
+            ?.value
+            .trim() || "";
+
+    const days =
+        editDays(
+            ".edit-dia"
+        );
+
+    const duration =
+        Math.max(
+            0,
+            Number(
+                $("editarDuracion")
+                    ?.value || 0
+            )
+        );
+
+    const maxTime =
+        $("editarHoraMax")
+            ?.value || "";
+
+    if (
+        !name ||
+        !days.length
+    ) {
+
+        toast(
+            "Nombre y al menos un día son obligatorios",
+            "warning"
+        );
+
+        return;
+    }
+
+    habit.nombre =
+        name;
+
+    habit.dias =
+        days;
+
+    habit.duracion =
+        duration;
+
+    habit.horaMax =
+        maxTime;
+
+    habit.tipo =
+        duration > 0
+            ? "timer"
+            : "check";
+
+    save();
+
+    closeEdit();
+
+    actualizarTodo();
+
+    toast(
+        "Actividad actualizada",
+        "success"
+    );
+}
+
+
+/* =========================================================
+   ELIMINAR / DESHACER
+   ========================================================= */
+
+function deleteHabit(index) {
+
+    confirmar(
+        "¿Quieres eliminar esta actividad?"
+    ).then(ok => {
+
+        if (!ok) {
+            return;
+        }
+
+        ultimoEliminado = {
+
+            habit:
+                clone(
+                    app.habitos[index]
+                ),
+
+            index
         };
-    } catch (e) {
-        console.error("Notification falló:", e);
-        mostrarToast("No se pudo mostrar la notificación", "error");
+
+        app.habitos.splice(
+            index,
+            1
+        );
+
+        save();
+
+        actualizarTodo();
+
+        showUndoToast();
+    });
+}
+
+function showUndoToast() {
+
+    const container =
+        $("toast-container");
+
+    if (
+        !container ||
+        !ultimoEliminado
+    ) {
+        return;
+    }
+
+    const item =
+        document.createElement(
+            "div"
+        );
+
+    item.className =
+        "toast warning";
+
+    item.textContent =
+        "↩️ Actividad eliminada. Haz clic para deshacer";
+
+    item.addEventListener(
+        "click",
+        () => {
+
+            if (!ultimoEliminado) {
+                return;
+            }
+
+            app.habitos.splice(
+                ultimoEliminado.index,
+                0,
+                ultimoEliminado.habit
+            );
+
+            ultimoEliminado =
+                null;
+
+            clearTimeout(
+                undoTimer
+            );
+
+            item.remove();
+
+            save();
+
+            actualizarTodo();
+
+            toast(
+                "Actividad restaurada",
+                "success"
+            );
+        }
+    );
+
+    container.appendChild(
+        item
+    );
+
+    clearTimeout(
+        undoTimer
+    );
+
+    undoTimer =
+        setTimeout(
+            () => {
+
+                ultimoEliminado =
+                    null;
+
+                item.remove();
+
+            },
+            5000
+        );
+}
+
+
+/* =========================================================
+   RETOS
+   ========================================================= */
+
+function renderChallenges() {
+
+    const now =
+        dateObj(
+            hoyISO()
+        );
+
+    const monthKey =
+        `${now.getFullYear()}-${pad(
+            now.getMonth() + 1
+        )}`;
+
+    const yearKey =
+        String(
+            now.getFullYear()
+        );
+
+    if (
+        !app.retos.mensuales[
+            monthKey
+        ]
+    ) {
+
+        app.retos.mensuales[
+            monthKey
+        ] =
+            generateMonthlyChallenge(
+                monthKey
+            );
+    }
+
+    if (
+        !app.retos.anuales[
+            yearKey
+        ]
+    ) {
+
+        app.retos.anuales[
+            yearKey
+        ] =
+            generateAnnualChallenge(
+                yearKey
+            );
+    }
+
+    renderChallengeList(
+        "retosMensuales",
+        app.retos.mensuales[
+            monthKey
+        ],
+        "month"
+    );
+
+    renderChallengeList(
+        "retosAnuales",
+        app.retos.anuales[
+            yearKey
+        ],
+        "year"
+    );
+
+    save();
+}
+
+function generateMonthlyChallenge(
+    key
+) {
+
+    return {
+
+        key,
+
+        goals: [
+
+            {
+                id:
+                    "days80",
+
+                text:
+                    "Completa 20 días al 80%",
+
+                target:
+                    20
+            },
+
+            {
+                id:
+                    "perfect",
+
+                text:
+                    "Consigue 5 días al 100%",
+
+                target:
+                    5
+            },
+
+            {
+                id:
+                    "streak",
+
+                text:
+                    "Alcanza una racha de 7 días",
+
+                target:
+                    7
+            }
+
+        ]
+    };
+}
+
+function generateAnnualChallenge(
+    key
+) {
+
+    return {
+
+        key,
+
+        goals: [
+
+            {
+                id:
+                    "days80",
+
+                text:
+                    "Completa 200 días al 80%",
+
+                target:
+                    200
+            },
+
+            {
+                id:
+                    "perfect",
+
+                text:
+                    "Consigue 50 días al 100%",
+
+                target:
+                    50
+            },
+
+            {
+                id:
+                    "streak",
+
+                text:
+                    "Alcanza una racha de 30 días",
+
+                target:
+                    30
+            }
+
+        ]
+    };
+}
+
+function challengeValue(
+    goalId,
+    scope
+) {
+
+    const today =
+        dateObj(
+            hoyISO()
+        );
+
+    const year =
+        today.getFullYear();
+
+    const monthPrefix =
+        `${year}-${pad(
+            today.getMonth() + 1
+        )}`;
+
+    const records =
+        app.historial.filter(
+            r =>
+                scope === "month"
+                    ? r.fecha.startsWith(
+                        monthPrefix
+                    )
+                    : r.fecha.startsWith(
+                        String(year)
+                    )
+        );
+
+    if (
+        goalId === "days80"
+    ) {
+
+        return records.filter(
+            r =>
+                r.porcentaje >= 80
+        ).length;
+    }
+
+    if (
+        goalId === "perfect"
+    ) {
+
+        return records.filter(
+            r =>
+                r.porcentaje === 100
+        ).length;
+    }
+
+    if (
+        goalId === "streak"
+    ) {
+
+        return app.racha.mejor;
+    }
+
+    return 0;
+}
+
+function renderChallengeList(
+    id,
+    challenge,
+    scope
+) {
+
+    const box =
+        $(id);
+
+    if (!box) {
+        return;
+    }
+
+    box.innerHTML = "";
+
+    challenge.goals.forEach(
+        goal => {
+
+            const value =
+                Math.min(
+                    goal.target,
+                    challengeValue(
+                        goal.id,
+                        scope
+                    )
+                );
+
+            const percent =
+                Math.round(
+                    value /
+                    goal.target *
+                    100
+                );
+
+            const item =
+                document.createElement(
+                    "div"
+                );
+
+            item.className =
+                "reto-item";
+
+            item.innerHTML = `
+
+                <div class="challenge-head">
+
+                    <strong>
+                        ${escapeHtml(
+                            goal.text
+                        )}
+                    </strong>
+
+                    <span>
+                        ${value}/${goal.target}
+                    </span>
+
+                </div>
+
+                <div class="reto-progress">
+
+                    <div
+                        class="reto-progress-bar"
+                        style="width:${percent}%"
+                    ></div>
+
+                </div>
+            `;
+
+            box.appendChild(
+                item
+            );
+        }
+    );
+}
+
+function actualizarRetos() {
+    renderChallenges();
+}
+
+
+/* =========================================================
+   TIEMPO EN PANTALLA
+   ========================================================= */
+
+function saveScreenTime() {
+
+    const date =
+        hoyISO();
+
+    const name =
+        $("screenApp")
+            ?.value
+            .trim() || "";
+
+    const minutes =
+        Math.max(
+            0,
+            Number(
+                $("screenMinutes")
+                    ?.value || 0
+            )
+        );
+
+    if (
+        !name ||
+        minutes <= 0
+    ) {
+
+        toast(
+            "Indica aplicación y minutos",
+            "warning"
+        );
+
+        return;
+    }
+
+    if (
+        !app.pantalla[date]
+    ) {
+
+        app.pantalla[date] =
+            {};
+    }
+
+    app.pantalla[date][name] =
+        (
+            app.pantalla[date][name] ||
+            0
+        ) + minutes;
+
+    save();
+
+    if ($("screenApp")) {
+        $("screenApp").value =
+            "";
+    }
+
+    if ($("screenMinutes")) {
+        $("screenMinutes").value =
+            "";
+    }
+
+    renderScreenTime();
+
+    updateDashboard();
+
+    toast(
+        `Tiempo de ${name} registrado`,
+        "success"
+    );
+}
+
+function totalScreenMinutes(
+    date
+) {
+
+    return Object.values(
+        app.pantalla[date] || {}
+    ).reduce(
+        (
+            sum,
+            value
+        ) =>
+            sum +
+            Number(
+                value || 0
+            ),
+        0
+    );
+}
+
+function formatMinutes(
+    minutes
+) {
+
+    minutes =
+        Math.max(
+            0,
+            Math.round(
+                Number(
+                    minutes
+                ) || 0
+            )
+        );
+
+    return minutes >= 60
+        ? `${Math.floor(
+            minutes / 60
+        )}h ${
+            minutes % 60
+        }m`
+        : `${minutes}m`;
+}
+
+function renderScreenTime() {
+
+    const box =
+        $("screenList");
+
+    if (!box) {
+        return;
+    }
+
+    const data =
+        app.pantalla[
+            hoyISO()
+        ] || {};
+
+    box.innerHTML = "";
+
+    Object.entries(
+        data
+    ).forEach(
+        ([name, minutes]) => {
+
+            const row =
+                document.createElement(
+                    "div"
+                );
+
+            row.className =
+                "screen-item";
+
+            row.innerHTML = `
+
+                <span>
+                    📱 ${escapeHtml(name)}
+                </span>
+
+                <strong>
+                    ${formatMinutes(
+                        minutes
+                    )}
+                </strong>
+
+            `;
+
+            box.appendChild(
+                row
+            );
+        }
+    );
+
+    if ($("screenTotal")) {
+
+        $("screenTotal").textContent =
+            formatMinutes(
+                totalScreenMinutes(
+                    hoyISO()
+                )
+            );
     }
 }
 
-function minutosDeHora(horaStr) {
-    const [h, m] = (horaStr || "21:00").split(":").map(Number);
-    return h * 60 + m;
+function renderStatsExtras() {
+
+    renderScreenTime();
+
+    renderChallenges();
 }
 
-function debeRecordarAhora() {
-    const activas = localStorage.getItem("notisActivas") === "1";
-    if (!activas || !("Notification" in window) || Notification.permission !== "granted") {
+
+/* =========================================================
+   NAVEGACIÓN
+   ========================================================= */
+
+function showSection(
+    id,
+    button
+) {
+
+    document
+        .querySelectorAll(
+            ".pagina"
+        )
+        .forEach(
+            page =>
+                page.classList.add(
+                    "oculto"
+                )
+        );
+
+    $(id)
+        ?.classList
+        .remove("oculto");
+
+    document
+        .querySelectorAll(
+            ".menu"
+        )
+        .forEach(
+            menu =>
+                menu.classList.remove(
+                    "active"
+                )
+        );
+
+    button
+        ?.classList
+        .add("active");
+
+    if (
+        id === "estadisticas"
+    ) {
+
+        const active =
+            document.querySelector(
+                ".tabs button.active"
+            );
+
+        updateGeneralChart(
+            active?.dataset.tipo ||
+            "semana"
+        );
+
+        renderStatsExtras();
+    }
+
+    if (
+        id === "tienda"
+    ) {
+        renderStore();
+    }
+
+    if (
+        id === "retos"
+    ) {
+        renderChallenges();
+    }
+
+    if (
+        id === "pantalla"
+    ) {
+        renderScreenTime();
+    }
+
+    if (
+        id === "configuracion"
+    ) {
+        renderUser();
+    }
+
+    window.scrollTo({
+        top: 0,
+        behavior: "smooth"
+    });
+}
+
+function mostrar(
+    id,
+    button
+) {
+
+    showSection(
+        id,
+        button
+    );
+}
+
+
+/* =========================================================
+   CALENDARIO
+   ========================================================= */
+
+function previousMonth() {
+
+    fechaCalendario.setMonth(
+        fechaCalendario.getMonth() - 1
+    );
+
+    createCalendar();
+}
+
+function nextMonth() {
+
+    fechaCalendario.setMonth(
+        fechaCalendario.getMonth() + 1
+    );
+
+    createCalendar();
+}
+
+function mesAnterior() {
+    previousMonth();
+}
+
+function mesSiguiente() {
+    nextMonth();
+}
+
+
+/* =========================================================
+   MODO OSCURO / CLARO
+   ========================================================= */
+
+function changeMode() {
+
+    const light =
+        !document.body.classList.contains(
+            "light"
+        );
+
+    document.body.classList.toggle(
+        "light",
+        light
+    );
+
+    localStorage.setItem(
+        "modo",
+        light
+            ? "claro"
+            : "oscuro"
+    );
+
+    const active =
+        document.querySelector(
+            ".tabs button.active"
+        );
+
+    updateGeneralChart(
+        active?.dataset.tipo ||
+        "semana"
+    );
+}
+
+function cambiarModo() {
+    changeMode();
+}
+
+
+/* =========================================================
+   SALUDO
+   ========================================================= */
+
+function updateGreeting() {
+
+    const name =
+        app.usuario?.nombre ||
+        "";
+
+    const hour =
+        new Date().getHours();
+
+    const greeting =
+        hour < 12
+            ? "Buenos días"
+            : hour < 19
+                ? "Buenas tardes"
+                : "Buenas noches";
+
+    if ($("saludo")) {
+
+        $("saludo").textContent =
+            name
+                ? `${greeting}, ${name} 👋`
+                : `${greeting} 👋`;
+
+    }
+}
+
+
+/* =========================================================
+   LOGIN LOCAL
+   ========================================================= */
+
+function renderUser() {
+    const logged = !!app.usuario.creado;
+
+    if ($("userStatus")) {
+        $("userStatus").innerHTML = logged
+            ? `${escapeHtml(app.usuario.nombre)} · ${escapeHtml(app.usuario.correo)} <span class="account-cloud">☁️ Sincronizado</span>`
+            : "Sin sesión";
+    }
+
+    const text = logged ? "Cerrar sesión" : "Iniciar sesión";
+
+    if ($("btnLogin")) {
+        $("btnLogin").textContent = text;
+    }
+
+    // Botón de Configuración
+    if ($("btnLoginConfig")) {
+        $("btnLoginConfig").textContent = text;
+        $("btnLoginConfig").className = logged ? "danger" : "primary";
+    }
+}
+
+function openLogin() {
+
+    $("modalLogin")
+        ?.classList
+        .remove("oculto");
+}
+
+function loginLocal() {
+
+    const name =
+        $("loginNombre")
+            ?.value
+            .trim() || "";
+
+    const email =
+        $("loginEmail")
+            ?.value
+            .trim() || "";
+
+    if (
+        !name ||
+        !email
+    ) {
+
+        toast(
+            "Completa nombre y correo",
+            "warning"
+        );
+
+        return;
+    }
+
+    app.usuario = {
+
+        creado:
+            true,
+
+        nombre:
+            name,
+
+        correo:
+            email
+    };
+
+    app.config.nombre =
+        name;
+
+    save();
+
+    $("modalLogin")
+        ?.classList
+        .add("oculto");
+
+    renderUser();
+
+    updateGreeting();
+
+    toast(
+        `Bienvenido, ${name}`,
+        "success"
+    );
+}
+
+function logoutLocal() {
+
+    app.usuario = {
+
+        creado:
+            false,
+
+        nombre:
+            "",
+
+        correo:
+            ""
+    };
+
+    save();
+
+    renderUser();
+
+    toast(
+        "Sesión local cerrada",
+        "info"
+    );
+}
+
+/* =========================================================
+   EXPORTAR / IMPORTAR
+   ========================================================= */
+
+function exportData() {
+
+    const blob =
+        new Blob(
+            [
+                JSON.stringify(
+                    app,
+                    null,
+                    2
+                )
+            ],
+            {
+                type:
+                    "application/json"
+            }
+        );
+
+    const url =
+        URL.createObjectURL(
+            blob
+        );
+
+    const link =
+        document.createElement(
+            "a"
+        );
+
+    link.href =
+        url;
+
+    link.download =
+        `habit-tracker-backup-${hoyISO()}.json`;
+
+    document.body.appendChild(
+        link
+    );
+
+    link.click();
+
+    link.remove();
+
+    URL.revokeObjectURL(
+        url
+    );
+
+    toast(
+        "Respaldo exportado",
+        "success"
+    );
+}
+
+function importData(file) {
+
+    if (!file) {
+        return;
+    }
+
+    const reader =
+        new FileReader();
+
+    reader.onload =
+        event => {
+
+            try {
+
+                const data =
+                    JSON.parse(
+                        event.target.result
+                    );
+
+                app =
+                    data;
+
+                ensureData();
+
+                save();
+
+                location.reload();
+
+            } catch {
+
+                toast(
+                    "Archivo JSON inválido",
+                    "error"
+                );
+            }
+        };
+
+    reader.readAsText(
+        file
+    );
+}
+
+
+/* =========================================================
+   REINICIAR DATOS
+   ========================================================= */
+
+function resetData() {
+
+    confirmar(
+        "¿Borrar todos tus datos, monedas, vidas, actividades e historial?"
+    ).then(
+        ok => {
+
+            if (!ok) {
+                return;
+            }
+
+            localStorage.clear();
+
+            location.reload();
+        }
+    );
+}
+
+
+/* =========================================================
+   CONFIGURACIÓN DE RACHA
+   ========================================================= */
+
+function setStreakMinimum(
+    value,
+    button
+) {
+
+    app.config.rachaMinima =
+        Number(value) || 80;
+
+    save();
+
+    document
+        .querySelectorAll(
+            ".btn-racha"
+        )
+        .forEach(
+            b =>
+                b.classList.remove(
+                    "active"
+                )
+        );
+
+    button
+        ?.classList
+        .add("active");
+
+    actualizarRacha();
+
+    updateDashboard();
+}
+
+
+/* =========================================================
+   NOTIFICACIONES
+   ========================================================= */
+
+function updateNotificationsUI() {
+
+    const status =
+        $("estadoNotis");
+
+    const button =
+        $("activarNotis");
+
+    if (!status) {
+        return;
+    }
+
+    if (
+        !("Notification" in window)
+    ) {
+
+        status.textContent =
+            "Este navegador no soporta notificaciones.";
+
+        return;
+    }
+
+    const active =
+        localStorage.getItem(
+            "notisActivas"
+        ) === "1";
+
+    const time =
+        localStorage.getItem(
+            "horaRecordatorio"
+        ) || "21:00";
+
+    status.textContent =
+        active
+            ? `Recordatorios activos a las ${time}`
+            : "Recordatorios desactivados";
+
+    if (button) {
+
+        button.textContent =
+            active
+                ? "Desactivar recordatorios"
+                : "Activar recordatorios";
+    }
+}
+
+async function sendNotification(
+    title,
+    body
+) {
+
+    if (
+        !("Notification" in window) ||
+        Notification.permission !==
+            "granted"
+    ) {
+        return;
+    }
+
+    try {
+
+        const registration =
+            await navigator
+                .serviceWorker
+                ?.ready;
+
+        if (
+            registration?.showNotification
+        ) {
+
+            await registration
+                .showNotification(
+                    title,
+                    {
+                        body,
+                        icon:
+                            "h.png"
+                    }
+                );
+
+        } else {
+
+            new Notification(
+                title,
+                {
+                    body
+                }
+            );
+        }
+
+    } catch {
+        // Algunos navegadores
+        // bloquean notificaciones.
+    }
+}
+
+async function toggleNotifications() {
+
+    if (
+        !("Notification" in window)
+    ) {
+
+        toast(
+            "Este navegador no soporta notificaciones",
+            "warning"
+        );
+
+        return;
+    }
+
+    const active =
+        localStorage.getItem(
+            "notisActivas"
+        ) === "1";
+
+    if (active) {
+
+        localStorage.setItem(
+            "notisActivas",
+            "0"
+        );
+
+        updateNotificationsUI();
+
+        toast(
+            "Recordatorios desactivados",
+            "info"
+        );
+
+        return;
+    }
+
+    const permission =
+        await Notification.requestPermission();
+
+    if (
+        permission !== "granted"
+    ) {
+
+        toast(
+            "No se concedió permiso para notificaciones",
+            "warning"
+        );
+
+        return;
+    }
+
+    localStorage.setItem(
+        "notisActivas",
+        "1"
+    );
+
+    localStorage.setItem(
+        "horaRecordatorio",
+        $("horaRecordatorio")
+            ?.value ||
+            "21:00"
+    );
+
+    updateNotificationsUI();
+
+    toast(
+        "Recordatorios activados",
+        "success"
+    );
+}
+
+
+/* =========================================================
+   CONFETI
+   ========================================================= */
+
+function confetti() {
+
+    const container =
+        document.createElement(
+            "div"
+        );
+
+    container.className =
+        "confeti-container";
+
+    for (
+        let i = 0;
+        i < 60;
+        i++
+    ) {
+
+        const piece =
+            document.createElement(
+                "i"
+            );
+
+        piece.className =
+            "confeti";
+
+        piece.style.left =
+            `${Math.random() * 100}vw`;
+
+        piece.style.animationDelay =
+            `${Math.random()}s`;
+
+        container.appendChild(
+            piece
+        );
+    }
+
+    document.body.appendChild(
+        container
+    );
+
+    setTimeout(
+        () =>
+            container.remove(),
+        3200
+    );
+}
+
+
+/* =========================================================
+   ACTUALIZAR TODA LA APP
+   ========================================================= */
+
+function updateAll() {
+
+    renderHabits();
+
+    renderEditor();
+
+    populateHabitSelector();
+
+    updateDashboard();
+
+    createCalendar();
+
+    updateGreeting();
+
+    renderStore();
+
+    renderStatsExtras();
+
+    renderUser();
+
+    if ($("notaDia")) {
+
+        $("notaDia").value =
+            getRecord()?.nota ||
+            "";
+    }
+}
+
+function actualizarTodo() {
+    updateAll();
+}
+
+
+/* =========================================================
+   EVENTOS
+   ========================================================= */
+
+function bindEvents() {
+
+    $("guardar")
+        ?.addEventListener(
+            "click",
+            saveDay
+        );
+
+    $("agregarHabito")
+        ?.addEventListener(
+            "click",
+            addHabit
+        );
+
+    $("guardarEditar")
+        ?.addEventListener(
+            "click",
+            saveEdit
+        );
+
+    $("cancelarEditar")
+        ?.addEventListener(
+            "click",
+            closeEdit
+        );
+
+    $("guardarJustificacion")
+        ?.addEventListener(
+            "click",
+            saveJustification
+        );
+
+    $("cancelarJustificacion")
+        ?.addEventListener(
+            "click",
+            () =>
+                $("modalJustificacion")
+                    ?.classList
+                    .add("oculto")
+        );
+
+    $("modalEditar")
+        ?.addEventListener(
+            "click",
+            e => {
+
+                if (
+                    e.target.id ===
+                    "modalEditar"
+                ) {
+                    closeEdit();
+                }
+            }
+        );
+
+    $("modalJustificacion")
+        ?.addEventListener(
+            "click",
+            e => {
+
+                if (
+                    e.target.id ===
+                    "modalJustificacion"
+                ) {
+
+                    $("modalJustificacion")
+                        ?.classList
+                        .add("oculto");
+                }
+            }
+        );
+
+    $("modalDetalle")
+        ?.addEventListener(
+            "click",
+            e => {
+
+                if (
+                    e.target.id ===
+                    "modalDetalle"
+                ) {
+
+                    closeDetail();
+                }
+            }
+        );
+
+    $("selectorHabito")
+        ?.addEventListener(
+            "change",
+            e =>
+                analyzeHabit(
+                    e.target.value
+                )
+        );
+
+
+    /* =====================================================
+       PESTAÑAS DE ESTADÍSTICAS
+       ===================================================== */
+
+    document
+        .querySelectorAll(
+            ".tabs button"
+        )
+        .forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    () => {
+
+                        document
+                            .querySelectorAll(
+                                ".tabs button"
+                            )
+                            .forEach(
+                                b =>
+                                    b.classList.remove(
+                                        "active"
+                                    )
+                            );
+
+                        button.classList.add(
+                            "active"
+                        );
+
+                        updateGeneralChart(
+                            button.dataset.tipo
+                        );
+                    }
+                );
+            }
+        );
+
+
+    /* =====================================================
+       MODO
+       ===================================================== */
+
+    $("modo")
+        ?.addEventListener(
+            "click",
+            changeMode
+        );
+
+
+    /* =====================================================
+       RACHA
+       ===================================================== */
+
+    document
+        .querySelectorAll(
+            ".btn-racha"
+        )
+        .forEach(
+            button => {
+
+                button.addEventListener(
+                    "click",
+                    () =>
+                        setStreakMinimum(
+                            button.dataset.min,
+                            button
+                        )
+                );
+            }
+        );
+
+
+    /* =====================================================
+       TIEMPO EN PANTALLA
+       ===================================================== */
+
+    $("guardarPantalla")
+        ?.addEventListener(
+            "click",
+            saveScreenTime
+        );
+
+
+    /* =====================================================
+       EXPORTAR / IMPORTAR
+       ===================================================== */
+
+    $("exportar")
+        ?.addEventListener(
+            "click",
+            exportData
+        );
+
+    $("importar")
+        ?.addEventListener(
+            "click",
+            () =>
+                $("archivoImportar")
+                    ?.click()
+        );
+
+    $("archivoImportar")
+        ?.addEventListener(
+            "change",
+            e =>
+                importData(
+                    e.target.files?.[0]
+                )
+        );
+
+    $("reiniciar")
+        ?.addEventListener(
+            "click",
+            resetData
+        );
+
+
+    /* =====================================================
+   LOGIN
+   ===================================================== */
+
+$("btnLogin")
+    ?.addEventListener(
+        "click",
+        () =>
+            app.usuario.creado
+                ? logoutLocal()
+                : openLogin()
+    );
+
+// ← Añade esto aquí
+$("btnLoginConfig")
+    ?.addEventListener(
+        "click",
+        () =>
+            app.usuario.creado
+                ? logoutLocal()
+                : openLogin()
+    );
+
+$("loginSubmit")
+    ?.addEventListener(
+        "click",
+        loginLocal
+    );
+
+$("loginCancel")
+    ?.addEventListener(
+        "click",
+        () =>
+            $("modalLogin")
+                ?.classList
+                .add("oculto")
+    );
+
+
+    /* =====================================================
+       CASTIGO
+       ===================================================== */
+
+    $("cumplirCastigo")
+        ?.addEventListener(
+            "click",
+            completePunishment
+        );
+
+    $("configCastigo")
+        ?.addEventListener(
+            "change",
+            e => {
+
+                app.config.castigo =
+                    e.target.value;
+
+                save();
+            }
+        );
+
+
+    /* =====================================================
+       NOTIFICACIONES
+       ===================================================== */
+
+    $("activarNotis")
+        ?.addEventListener(
+            "click",
+            toggleNotifications
+        );
+
+    $("probarNoti")
+        ?.addEventListener(
+            "click",
+            async () => {
+
+                if (
+                    !("Notification" in window)
+                ) {
+                    return;
+                }
+
+                const permission =
+                    Notification.permission ===
+                    "granted"
+
+                        ? "granted"
+
+                        : await Notification
+                            .requestPermission();
+
+                if (
+                    permission ===
+                    "granted"
+                ) {
+
+                    await sendNotification(
+                        "Habit Tracker",
+                        "Las notificaciones funcionan 👍"
+                    );
+                }
+            }
+        );
+
+    $("horaRecordatorio")
+        ?.addEventListener(
+            "change",
+            e => {
+
+                localStorage.setItem(
+                    "horaRecordatorio",
+                    e.target.value
+                );
+
+                updateNotificationsUI();
+            }
+        );
+
+
+    /* =====================================================
+       MODO GUARDADO
+       ===================================================== */
+
+    const savedMode =
+        localStorage.getItem(
+            "modo"
+        );
+
+    if (
+        savedMode ===
+        "claro"
+    ) {
+
+        document.body.classList.add(
+            "light"
+        );
+    }
+
+    /* =====================================================
+   BOTÓN IR ARRIBA (móvil)
+   ===================================================== */
+
+const btnArriba = $("btnIrArriba");
+
+if (btnArriba) {
+    // Mostrar la flecha cuando el menú ya no se ve
+    window.addEventListener("scroll", () => {
+        // El menú suele ocupar ~180-220px de alto en móvil
+        const umbral = 220;
+
+        if (window.scrollY > umbral) {
+            btnArriba.classList.add("visible");
+        } else {
+            btnArriba.classList.remove("visible");
+        }
+    });
+
+    // Al hacer clic, subir suavemente
+    btnArriba.addEventListener("click", () => {
+        window.scrollTo({
+            top: 0,
+            behavior: "smooth"
+        });
+    });
+}
+}
+
+
+/* =========================================================
+   INICIALIZACIÓN
+   ========================================================= */
+
+function initialize() {
+
+    migrate();
+
+    bindEvents();
+
+    initDayButtons();
+
+
+    if ($("configCastigo")) {
+
+        $("configCastigo").value =
+            app.config.castigo ||
+            "400 lagartijas";
+    }
+
+    if ($("horaRecordatorio")) {
+
+        $("horaRecordatorio").value =
+            localStorage.getItem(
+                "horaRecordatorio"
+            ) ||
+            "21:00";
+    }
+
+
+    document
+        .querySelectorAll(
+            ".btn-racha"
+        )
+        .forEach(
+            button => {
+
+                button.classList.toggle(
+                    "active",
+
+                    Number(
+                        button.dataset.min
+                    ) ===
+                    Number(
+                        app.config
+                            .rachaMinima
+                    )
+                );
+            }
+        );
+
+
+    processYesterday();
+
+    actualizarRacha();
+
+    updateAll();
+
+    setTimeout(checkPendingJustifications, 1000);
+
+    updateNotificationsUI();
+}
+
+
+/* =========================================================
+   COMPATIBILIDAD CON onclick DEL HTML
+   ========================================================= */
+
+window.mostrar =
+    mostrar;
+
+window.mesAnterior =
+    mesAnterior;
+
+window.mesSiguiente =
+    mesSiguiente;
+
+window.cerrarDetalle =
+    closeDetail;
+
+window.cambiarModo =
+    cambiarModo;
+
+
+/* =========================================================
+   SERVICE WORKER
+   ========================================================= */
+
+if (
+    "serviceWorker" in
+    navigator
+) {
+
+    window.addEventListener(
+        "load",
+        () => {
+
+            navigator.serviceWorker
+                .register(
+                    "./sw.js"
+                )
+                .catch(
+                    error => {
+
+                        console.warn(
+                            "Service Worker no disponible:",
+                            error
+                        );
+                    }
+                );
+        }
+    );
+}
+
+
+/* =========================================================
+   DOM READY
+   ========================================================= */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    initialize
+);
+
+/* =========================================================
+   V4 - LOGIN REAL + SINCRONIZACIÓN + RETOS PERSONALIZADOS
+   ========================================================= */
+
+const SUPABASE_URL = "https://wzqshgnhphkmrilwxdos.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_ErqnMnu8d1JySVNApTnG2w_TZZykOuL";
+let supabaseClient = null;
+let authMode = "login";
+let editingChallenge = null;
+
+function supabaseConfigured() {
+    return SUPABASE_URL.startsWith("https://") &&
+        SUPABASE_ANON_KEY &&
+        !SUPABASE_ANON_KEY.startsWith("PEGA_AQUI");
+}
+
+function initSupabase() {
+    if (!supabaseConfigured()) return false;
+    if (!window.supabase?.createClient) return false;
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    return true;
+}
+
+async function getCloudSession() {
+    if (!supabaseClient) return null;
+    const { data } = await supabaseClient.auth.getSession();
+    return data?.session || null;
+}
+
+async function syncToCloud() {
+    if (!supabaseClient) return;
+    const session = await getCloudSession();
+    if (!session?.user?.id) return;
+
+    const payload = clone(app);
+    payload.usuario = {
+        creado: true,
+        nombre: app.usuario.nombre || session.user.user_metadata?.nombre || "",
+        correo: session.user.email || app.usuario.correo || ""
+    };
+
+    const { error } = await supabaseClient
+        .from("habit_tracker_data")
+        .upsert({
+            user_id: session.user.id,
+            data: payload,
+            updated_at: new Date().toISOString()
+        }, { onConflict: "user_id" });
+
+    if (error) console.warn("No se pudo sincronizar:", error.message);
+}
+
+async function loadFromCloud(userId) {
+    if (!supabaseClient || !userId) return false;
+
+    const { data, error } = await supabaseClient
+        .from("habit_tracker_data")
+        .select("data")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+    if (error) {
+        console.warn("No se pudo cargar la nube:", error.message);
         return false;
     }
 
-    const hoy = fechaActual();
-    if (localStorage.getItem("ultimaNoti") === hoy) return false; // ya avisó hoy
-    if (typeof obtenerHoy === "function" && obtenerHoy()) return false; // ya guardó el día
+    if (!data?.data) return false;
 
-    const horaConfig = localStorage.getItem("horaRecordatorio") || "21:00";
-    const ahora = new Date();
-    const minsAhora = ahora.getHours() * 60 + ahora.getMinutes();
-    const minsConfig = minutosDeHora(horaConfig);
-
-    // Suena si:
-    // - estamos en la ventana de la hora (0–2 min después), O
-    // - YA PASÓ la hora de hoy (aviso atrasado, una sola vez)
-    return minsAhora >= minsConfig;
+    app = data.data;
+    ensureData();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(app));
+    return true;
 }
 
-async function intentarRecordatorio(forzar = false) {
-    if (!forzar && !debeRecordarAhora()) return;
-
-    // Doble check por si acaso
-    const hoy = fechaActual();
-    if (localStorage.getItem("ultimaNoti") === hoy) return;
-    if (typeof obtenerHoy === "function" && obtenerHoy()) return;
-
-    const pendientes = typeof obtenerHabitosHoy === "function"
-        ? obtenerHabitosHoy().length
-        : 0;
-
-    await enviarNotificacion(
-        "Habit Tracker",
-        pendientes > 0
-            ? `Aún no guardaste el día. Tienes ${pendientes} hábito(s) pendiente(s).`
-            : "Aún no registraste tu progreso de hoy"
-    );
-
-    localStorage.setItem("ultimaNoti", hoy);
+async function saveCloudNow() {
+    save();
+    await syncToCloud();
 }
 
-function programarRecordatorio() {
-    if (window._habitNotiInterval) {
-        clearInterval(window._habitNotiInterval);
-        window._habitNotiInterval = null;
-    }
-
-    const activas = localStorage.getItem("notisActivas") === "1";
-    if (!activas || !("Notification" in window) || Notification.permission !== "granted") {
+async function loginLocal() {
+    if (!supabaseClient) {
+        toast("Configura Supabase para activar el inicio de sesión real.", "warning");
         return;
     }
 
-    // Al programar, si ya debió sonar hoy → suena ya
-    intentarRecordatorio();
+    const name = $("loginNombre")?.value.trim() || "";
+    const email = $("loginEmail")?.value.trim() || "";
+    const password = $("loginPassword")?.value || "";
 
-    // Revisión periódica
-    window._habitNotiInterval = setInterval(() => {
-        intentarRecordatorio();
-    }, 20000);
+    if (!email || !password) {
+        toast("Correo y contraseña son obligatorios", "warning");
+        return;
+    }
 
-    // Cuando vuelves a la pestaña (móvil muy importante)
-    document.removeEventListener("visibilitychange", window._habitNotiVis);
-    window._habitNotiVis = () => {
-        if (document.visibilityState === "visible") {
-            intentarRecordatorio();
+    if (authMode === "signup" && (!name || password.length < 6)) {
+        toast("Para registrarte necesitas nombre y una contraseña de mínimo 6 caracteres", "warning");
+        return;
+    }
+
+    const button = $("loginSubmit");
+    if (button) button.disabled = true;
+
+    try {
+        let result;
+        if (authMode === "signup") {
+            result = await supabaseClient.auth.signUp({
+                email,
+                password,
+                options: { data: { nombre: name } }
+            });
+        } else {
+            result = await supabaseClient.auth.signInWithPassword({ email, password });
         }
-    };
-    document.addEventListener("visibilitychange", window._habitNotiVis);
-}
 
-// Activar / Desactivar
-document.getElementById("activarNotis")?.addEventListener("click", async () => {
-    const activas = localStorage.getItem("notisActivas") === "1";
+        if (result.error) throw result.error;
 
-    // Desactivar
-    if (activas && Notification.permission === "granted") {
-        localStorage.setItem("notisActivas", "0");
-        if (window._habitNotiInterval) {
-            clearInterval(window._habitNotiInterval);
-            window._habitNotiInterval = null;
+        const session = result.data?.session;
+        if (!session) {
+            toast("Revisa tu correo para confirmar la cuenta y después inicia sesión.", "info", 5000);
+            $("modalLogin")?.classList.add("oculto");
+            return;
         }
-        actualizarUINotis();
-        mostrarToast("Recordatorios desactivados", "info");
-        return;
+
+        const cloudHadData = await loadFromCloud(session.user.id);
+
+        if (!cloudHadData) {
+            app.usuario = {
+                creado: true,
+                nombre: name || session.user.user_metadata?.nombre || "",
+                correo: session.user.email || email
+            };
+            app.config.nombre = app.usuario.nombre;
+            ensureData();
+            await syncToCloud();
+        } else {
+            app.usuario.creado = true;
+            app.usuario.correo = session.user.email || email;
+            app.usuario.nombre = app.usuario.nombre || session.user.user_metadata?.nombre || "";
+            save();
+        }
+
+        $("modalLogin")?.classList.add("oculto");
+        updateAll();
+        toast(`Bienvenido${app.usuario.nombre ? `, ${app.usuario.nombre}` : ""} 👋`, "success");
+    } catch (error) {
+        console.error(error);
+        const message = String(error.message || "");
+        toast(message.includes("Invalid login credentials") ? "Correo o contraseña incorrectos" : message || "No se pudo iniciar sesión", "error", 5000);
+    } finally {
+        if (button) button.disabled = false;
     }
-
-    // Activar
-    const ok = await pedirPermisoNotificaciones();
-    if (!ok) {
-        actualizarUINotis();
-        return;
-    }
-
-    const hora = document.getElementById("horaRecordatorio")?.value || "21:00";
-    localStorage.setItem("horaRecordatorio", hora);
-    localStorage.setItem("notisActivas", "1");
-
-    programarRecordatorio(); // si ya pasó la hora y no guardaste → suena aquí
-    actualizarUINotis();
-    mostrarToast(`Recordatorios activos a las ${hora}`, "success");
-});
-
-// Probar (muy importante en móvil: permiso + envío en el mismo gesto)
-document.getElementById("probarNoti")?.addEventListener("click", async () => {
-    if (!("Notification" in window)) {
-        mostrarToast("Tu navegador no soporta notificaciones", "warning");
-        return;
-    }
-
-    // Pedir permiso SIEMPRE dentro del click
-    let permiso = Notification.permission;
-    if (permiso !== "granted") {
-        permiso = await Notification.requestPermission();
-    }
-
-    if (permiso !== "granted") {
-        mostrarToast("Activa las notificaciones del sitio en el navegador", "warning");
-        actualizarUINotis();
-        return;
-    }
-
-    await enviarNotificacion(
-        "Habit Tracker",
-        "Prueba OK 👍 Si ves esto, las notis funcionan en este dispositivo"
-    );
-
-    mostrarToast("Mira la barra de notificaciones del sistema", "success");
-});
-
-document.getElementById("horaRecordatorio")?.addEventListener("change", (e) => {
-    localStorage.setItem("horaRecordatorio", e.target.value);
-    if (localStorage.getItem("notisActivas") === "1") {
-        programarRecordatorio();
-        actualizarUINotis();
-        mostrarToast(`Hora actualizada: ${e.target.value}`, "success");
-    }
-});
-
-
-// Registrar Service Worker (ayuda mucho en Android)
-if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
 }
 
-// Al cargar
-actualizarUINotis();
-programarRecordatorio();
+async function logoutLocal() {
+    if (supabaseClient) await supabaseClient.auth.signOut();
+    app.usuario = { creado: false, nombre: "", correo: "" };
+    save();
+    renderUser();
+    toast("Sesión cerrada", "info");
+}
 
-//==================================================
-// ACTUALIZAR TODO
-//==================================================
+function openLogin() {
+    authMode = "login";
+    updateLoginModeUI();
+    $("modalLogin")?.classList.remove("oculto");
+}
 
-function actualizarTodo() {
-    crearHabitos();
-    crearEditor();
-    actualizarDashboard();
-    crearCalendario();
-    crearSelectorHabitos();
-    actualizarGrafica();
+function updateLoginModeUI() {
+    const signup = authMode === "signup";
+    if ($("loginNombre")) {
+        $("loginNombre").style.display = signup ? "block" : "none";
+        $("loginNombre").required = signup;
+    }
+    if ($("loginSubmit")) $("loginSubmit").textContent = signup ? "Crear cuenta" : "Entrar";
+    if ($("loginModeBtn")) $("loginModeBtn").textContent = signup ? "¿Ya tienes cuenta? Iniciar sesión" : "¿No tienes cuenta? Crear una";
+    if ($("loginHelp")) $("loginHelp").textContent = signup
+        ? "Crea tu cuenta con correo y contraseña. Después podrás usar tus datos en otros dispositivos."
+        : "Entra con tu correo y contraseña para recuperar tus datos sincronizados.";
+}
+
+async function bootRealAuth() {
+    initSupabase();
+
+    if (!supabaseClient) {
+        const status = $("userStatus");
+        if (status) status.innerHTML = "Sin sesión <span class=\"account-cloud\">☁️ Login real pendiente de configurar</span>";
+        return;
+    }
+
+    supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+        if (!session) {
+            app.usuario = { creado: false, nombre: "", correo: "" };
+            save();
+            renderUser();
+            return;
+        }
+
+        const hadData = await loadFromCloud(session.user.id);
+        if (!hadData) {
+            app.usuario = {
+                creado: true,
+                nombre: session.user.user_metadata?.nombre || app.config.nombre || "",
+                correo: session.user.email || ""
+            };
+            app.config.nombre = app.usuario.nombre;
+            await syncToCloud();
+        } else {
+            app.usuario.creado = true;
+            app.usuario.correo = session.user.email || app.usuario.correo;
+            save();
+        }
+        updateAll();
+    });
+
+    const session = await getCloudSession();
+    if (session) {
+        const hadData = await loadFromCloud(session.user.id);
+        if (!hadData) {
+            app.usuario.creado = true;
+            app.usuario.correo = session.user.email || "";
+            await syncToCloud();
+        }
+        updateAll();
+    }
+}
+
+/* Guardado: local siempre + nube cuando hay sesión. */
+const originalSaveForCloud = save;
+save = function saveWithCloud() {
+    originalSaveForCloud();
+    if (supabaseClient) {
+        clearTimeout(save.cloudTimer);
+        save.cloudTimer = setTimeout(() => syncToCloud(), 500);
+    }
+};
+
+/* =========================================================
+   RETOS PERSONALIZADOS
+   ========================================================= */
+
+function ensureCustomChallenges() {
+    if (!app.retos || typeof app.retos !== "object") app.retos = {};
+    if (!Array.isArray(app.retos.custom)) app.retos.custom = [];
+}
+
+function challengeCurrent(challenge) {
+    return Math.max(0, Number(challenge.progreso) || 0);
+}
+
+function renderChallenges() {
+    ensureCustomChallenges();
+    const monthlyBox = $("retosMensuales");
+    const annualBox = $("retosAnuales");
+    if (!monthlyBox || !annualBox) return;
+
+    monthlyBox.innerHTML = "";
+    annualBox.innerHTML = "";
+
+    const custom = app.retos.custom;
+    const monthlyCustom = custom.filter(x => x.tipo === "mensual");
+    const annualCustom = custom.filter(x => x.tipo === "anual");
+
+    renderBuiltInChallenges(monthlyBox, "month");
+    renderBuiltInChallenges(annualBox, "year");
+    monthlyCustom.forEach(c => renderCustomChallenge(monthlyBox, c));
+    annualCustom.forEach(c => renderCustomChallenge(annualBox, c));
+
+    if (!monthlyCustom.length && !annualCustom.length) {
+        // Los retos automáticos siguen apareciendo; no hace falta mostrar un vacío.
+    }
+    originalSaveForCloud();
+}
+
+function renderBuiltInChallenges(box, scope) {
+    const now = dateObj(hoyISO());
+    const key = scope === "month"
+        ? `${now.getFullYear()}-${pad(now.getMonth() + 1)}`
+        : String(now.getFullYear());
+
+    const collection = scope === "month" ? app.retos.mensuales : app.retos.anuales;
+    if (!collection[key]) collection[key] = scope === "month" ? generateMonthlyChallenge(key) : generateAnnualChallenge(key);
+    const challenge = collection[key];
+
+    challenge.goals.forEach(goal => {
+        const value = Math.min(goal.target, challengeValue(goal.id, scope));
+        const percent = Math.round(value / goal.target * 100);
+        const item = document.createElement("div");
+        item.className = "reto-item";
+        item.innerHTML = `
+            <div class="reto-header"><strong class="reto-title">${escapeHtml(goal.text)}</strong><span>${value}/${goal.target}</span></div>
+            <div class="reto-progress"><div class="reto-progress-bar" style="width:${percent}%"></div></div>
+            <div class="reto-bottom"><span>${percent}%</span><span>Automático</span></div>
+        `;
+        box.appendChild(item);
+    });
+}
+
+function renderCustomChallenge(box, challenge) {
+    const current = Math.min(challenge.meta, challengeCurrent(challenge));
+    const percent = Math.min(100, Math.round(current / challenge.meta * 100));
+    const done = current >= challenge.meta;
+
+    const item = document.createElement("div");
+    item.className = "reto-item";
+    item.innerHTML = `
+        <div class="reto-header">
+            <strong class="reto-title">${escapeHtml(challenge.nombre)}</strong>
+            <span class="reto-reward">+${challenge.recompensa} $</span>
+        </div>
+        ${challenge.descripcion ? `<div class="reto-desc">${escapeHtml(challenge.descripcion)}</div>` : ""}
+        <div class="reto-progress"><div class="reto-progress-bar" style="width:${percent}%"></div></div>
+        <div class="reto-bottom">
+            <span>${current}/${challenge.meta}${challenge.unidad ? ` ${escapeHtml(challenge.unidad)}` : ""}</span>
+            <span>${done ? "✅ Completado" : `${percent}%`}</span>
+        </div>
+        <div class="reto-actions">
+            <button class="reto-minus">−1</button>
+            <button class="reto-plus">+1</button>
+            <button class="reto-edit">Editar</button>
+            <button class="danger reto-delete">Eliminar</button>
+        </div>
+    `;
+
+    item.querySelector(".reto-plus").onclick = () => changeCustomChallengeProgress(challenge.id, 1);
+    item.querySelector(".reto-minus").onclick = () => changeCustomChallengeProgress(challenge.id, -1);
+    item.querySelector(".reto-edit").onclick = () => openChallengeForm(challenge);
+    item.querySelector(".reto-delete").onclick = () => deleteCustomChallenge(challenge.id);
+    box.appendChild(item);
+}
+
+function openChallengeForm(challenge = null) {
+    editingChallenge = challenge?.id || null;
+    $("retoForm")?.classList.remove("oculto");
+    $("retoFormTitulo").textContent = challenge ? "Editar reto" : "Crear reto";
+    $("retoNombre").value = challenge?.nombre || "";
+    $("retoDescripcion").value = challenge?.descripcion || "";
+    $("retoMeta").value = challenge?.meta || "";
+    $("retoUnidad").value = challenge?.unidad || "";
+    $("retoRecompensa").value = challenge?.recompensa ?? 100;
+    $("retoTipo").value = challenge?.tipo || "mensual";
+    $("retoNombre")?.focus();
+}
+
+function closeChallengeForm() {
+    editingChallenge = null;
+    $("retoForm")?.classList.add("oculto");
+}
+
+function saveCustomChallenge() {
+    ensureCustomChallenges();
+    const nombre = $("retoNombre")?.value.trim() || "";
+    const descripcion = $("retoDescripcion")?.value.trim() || "";
+    const meta = Math.max(1, Number($("retoMeta")?.value || 0));
+    const unidad = $("retoUnidad")?.value.trim() || "";
+    const recompensa = Math.max(0, Number($("retoRecompensa")?.value || 0));
+    const tipo = $("retoTipo")?.value === "anual" ? "anual" : "mensual";
+
+    if (!nombre || !Number.isFinite(meta) || meta < 1) {
+        toast("Pon un nombre y una meta válida", "warning");
+        return;
+    }
+
+    if (editingChallenge) {
+        const c = app.retos.custom.find(x => x.id === editingChallenge);
+        if (c) {
+            c.nombre = nombre;
+            c.descripcion = descripcion;
+            c.meta = meta;
+            c.unidad = unidad;
+            c.recompensa = recompensa;
+            c.tipo = tipo;
+            c.progreso = Math.min(Number(c.progreso) || 0, meta);
+        }
+        toast("Reto actualizado", "success");
+    } else {
+        app.retos.custom.push({
+            id: uid("challenge"),
+            nombre,
+            descripcion,
+            meta,
+            progreso: 0,
+            unidad,
+            recompensa,
+            tipo,
+            creado: hoyISO(),
+            recompensaEntregada: false
+        });
+        toast("Reto creado", "success");
+    }
+
+    save();
+    closeChallengeForm();
+    renderChallenges();
+}
+
+function changeCustomChallengeProgress(id, amount) {
+    ensureCustomChallenges();
+    const c = app.retos.custom.find(x => x.id === id);
+    if (!c) return;
+
+    const before = Math.min(c.meta, Math.max(0, Number(c.progreso) || 0));
+    c.progreso = Math.min(c.meta, Math.max(0, before + amount));
+
+    if (c.progreso >= c.meta && !c.recompensaEntregada) {
+        app.economia.monedas += Number(c.recompensa) || 0;
+        c.recompensaEntregada = true;
+        toast(`🏆 Reto completado. +${c.recompensa} monedas`, "success");
+    }
+
+    if (c.progreso < c.meta) c.recompensaEntregada = false;
+    save();
+    renderChallenges();
+    updateDashboard();
+}
+
+async function deleteCustomChallenge(id) {
+    const ok = await confirmar("¿Eliminar este reto?");
+    if (!ok) return;
+    app.retos.custom = (app.retos.custom || []).filter(x => x.id !== id);
+    save();
+    renderChallenges();
+    toast("Reto eliminado", "info");
+}
+
+/* =========================================================
+   INICIO DE LA CAPA V4
+   ========================================================= */
+
+document.addEventListener("DOMContentLoaded", () => {
+    ensureCustomChallenges();
+    updateLoginModeUI();
+
+    $("nuevoRetoBtn")?.addEventListener("click", () => openChallengeForm());
+    $("cancelarReto")?.addEventListener("click", closeChallengeForm);
+    $("guardarReto")?.addEventListener("click", saveCustomChallenge);
+
+    $("loginModeBtn")?.addEventListener("click", () => {
+        authMode = authMode === "login" ? "signup" : "login";
+        updateLoginModeUI();
+    });
+
+    $("modalLogin")?.addEventListener("click", e => {
+        if (e.target.id === "modalLogin") $("modalLogin").classList.add("oculto");
+    });
+
+    bootRealAuth();
+});
+
+/* =========================================================
+   PREGUNTAR JUSTIFICACIÓN
+   ========================================================= */
+
+function checkPendingJustifications() {
+
+    const habits = getTodayHabits();
+    const record = getRecord();
+
+    for (const habit of habits) {
+
+        if (!habit.horaMax) continue;
+
+        const status = record?.habitos?.[habit.id] || { estado: "pendiente" };
+
+        // Solo si ya pasó la hora y sigue pendiente
+        if (
+            passedMaxTime(habit) &&
+            status.estado === "pendiente"
+        ) {
+            // Evitar preguntar varias veces el mismo día
+            const key = `asked_justif_${hoyISO()}_${habit.id}`;
+            if (localStorage.getItem(key)) continue;
+
+            localStorage.setItem(key, "1");
+
+            // Preguntar
+            setTimeout(() => {
+                confirmar(
+                    `Ya pasó la hora de "${habit.nombre}".\n\n¿Quieres justificarla para proteger tu racha?`
+                ).then(ok => {
+                    if (ok) {
+                        openJustification(habit.id);
+                    }
+                });
+            }, 600);
+
+            // Solo preguntamos una por vez
+            break;
+        }
+    }
 }

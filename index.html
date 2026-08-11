@@ -1,332 +1,1411 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Habit Tracker </title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<title>Habit Tracker</title>
 
-    <!-- FullCalendar -->
-    <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-    <link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="manifest.json">
 
-    <link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d1117">
 
-    <link rel="icon" href="h.png" type="image/x-icon">
+<link rel="apple-touch-icon" href="h.png">
+
+<link rel="stylesheet" href="styles.css">
+
+<link rel="icon" href="h.png">
+
 </head>
 
 <body>
 
+<!-- ==================================================
+     MENÚ LATERAL
+================================================== -->
 
-<div class="sidebar">
+<aside class="sidebar">
 
-    <h2> Habit Tracker</h2>
+    <h2>Habit Tracker</h2>
 
-    <button class="menu active" onclick="mostrar('inicio', this)">🏠 Inicio</button>
+    <button class="menu active"
+            onclick="mostrar('inicio',this)">
+        🏠 Inicio
+    </button>
 
-    <button class="menu" onclick="mostrar('calendario',this)">📅 Calendario</button>
+    <button class="menu"
+            onclick="mostrar('calendario',this)">
+        📅 Calendario
+    </button>
 
-    <button class="menu" onclick="mostrar('estadisticas',this)">📈 Estadísticas</button>
+    <button class="menu"
+            onclick="mostrar('estadisticas',this)">
+        📈 Estadísticas
+    </button>
 
-    <button class="menu" onclick="mostrar('habitos',this)">✅ Hábitos</button>
+    <button class="menu"
+            onclick="mostrar('habitos',this)">
+        ✅ Hábitos
+    </button>
 
-    <button class="menu" onclick="mostrar('configuracion',this)">⚙ Configuración</button>
+    <button class="menu"
+            onclick="mostrar('tienda',this)">
+        🛒 Tienda
+    </button>
 
-</div>
+    <button class="menu"
+            onclick="mostrar('retos',this)">
+        🏆 Retos
+    </button>
 
-<div class="contenido">
+    <button class="menu"
+            onclick="mostrar('pantalla',this)">
+        📱 Pantalla
+    </button>
 
-<!-- =================== INICIO =================== -->
+    <button class="menu"
+            onclick="mostrar('configuracion',this)">
+        ⚙️ Configuración
+    </button>
+
+</aside>
+
+
+<!-- ==================================================
+     CONTENIDO PRINCIPAL
+================================================== -->
+
+<main class="contenido">
+
+
+<!-- ==================================================
+     INICIO
+================================================== -->
 
 <section id="inicio" class="pagina">
 
-<p id="saludo" class="saludo"></p> 
-<h1>Resumen del día</h1>
+    <p id="saludo" class="saludo"></p>
 
-<div class="cards">
+    <div class="topbar">
 
-<div class="card">
-<h3>Porcentaje</h3>
-<h1 id="porcentajeHoy">0%</h1>
-</div>
+        <h1>Resumen del día</h1>
 
-<div class="card">
-<h3>Hábitos</h3>
-<h1 id="contadorHabitos">0 / 0</h1>
-</div>
-
-<div class="card">
-<h3>Racha</h3>
-<h1 id="racha">🔥0</h1>
-</div>
-
-<div class="card">
-<h3>Mejor racha</h3>
-<h1 id="mejorRacha">0</h1>
-</div>
-
-</div>
-
-<h2>Hábitos de hoy</h2>
-
-<div id="listaHabitos"></div>
-<!-- Notas del día (ponlo cerca del botón Guardar) -->
-    <div class="notas-dia">
-        <label for="notaDia">Nota del día (opcional)</label>
-        <textarea id="notaDia" placeholder="¿Cómo te fue hoy?" rows="2"></textarea>
-    </div>
-
-<button id="guardar">Guardar progreso</button>
-
-</section>
-
-<!-- ================= CALENDARIO ================= -->
-
-<section id="calendario" class="pagina oculto">
-
-<h1>Calendario</h1>
-
-<div class="miCalendario">
-
-    <div class="controlesCalendario">
-
-        <button class="flechaCalendario" onclick="mesAnterior()"> ‹ </button>
         
-        <h2 id="mesActual"></h2>
-
-        <button class="flechaCalendario" onclick="mesSiguiente()"> › </button>
 
     </div>
 
 
-    <div id="calendar"></div>
+    <!-- TARJETAS PRINCIPALES -->
 
-</div>
+    <div class="cards">
+
+        <div class="card">
+            <h3>Porcentaje</h3>
+            <h1 id="porcentajeHoy">0%</h1>
+        </div>
+
+
+        <div class="card">
+            <h3>Actividades</h3>
+            <h1 id="contadorHabitos">
+                0 / 0
+            </h1>
+        </div>
+
+
+        <div class="card">
+
+            <h3>Racha</h3>
+
+            <h1 id="racha">
+                🔥 0
+            </h1>
+
+        </div>
+
+
+        <div class="card">
+
+            <h3>Mejor racha</h3>
+
+            <h1 id="mejorRacha">
+                0
+            </h1>
+
+        </div>
+
+
+        <div class="card economy-card">
+
+            <h3>Monedas</h3>
+
+            <h1 id="monedasTop">
+                0 $
+            </h1>
+
+        </div>
+
+
+        <div class="card economy-card">
+
+            <h3>Vidas</h3>
+
+            <h1 id="vidasTop">
+                ❤️❤️❤️
+            </h1>
+
+        </div>
+
+
+        <div class="card">
+
+            <h3>Tiempo en pantalla</h3>
+
+            <h1 id="screenTotalCard">
+                0m
+            </h1>
+
+        </div>
+
+    </div>
+
+
+    <!-- FRASE -->
+
+    <div class="quote-card">
+
+        <span>💬</span>
+
+        <p id="fraseDesempeno">
+            Hoy tienes una nueva oportunidad.
+        </p>
+
+    </div>
+
+
+    <!-- ACTIVIDADES -->
+
+    <h2>
+        Actividades de hoy
+    </h2>
+
+    <div id="listaHabitos"></div>
+
+
+    <!-- NOTA DEL DÍA -->
+
+    <div class="notas-dia">
+
+        <label for="notaDia">
+            Nota del día
+        </label>
+
+        <textarea
+            id="notaDia"
+            rows="3"
+            placeholder="¿Cómo te fue hoy?">
+        </textarea>
+
+    </div>
+
+
+    <button
+        id="guardar"
+        class="primary big">
+
+        Guardar progreso
+
+    </button>
 
 </section>
 
-<!-- ============== ESTADISTICAS ================= -->
-
-<section id="estadisticas" class="pagina oculto">
-
-<h1>Estadísticas</h1>
-
-<div class="tabs">
-
-<!--<button onclick="cambiarGrafica('dia')">Dia</button>-->
-
- <button onclick="cambiarGrafica('semana')">Semana</button> 
-
-<button onclick="cambiarGrafica('mes')">Mes</button>
-
-<button onclick="cambiarGrafica('año')">Año</button>
-
-</div>
-
-<canvas id="graficaGeneral"></canvas>
-
-<hr>
-
-<h2>Estadísticas por hábito</h2>
-
-<select id="selectorHabito">
-
-<option value="">Selecciona un hábito</option>
-
-</select>
-
-<canvas id="graficaHabito"></canvas>
-
-<div class="estadisticasHabito">
-
-<p>Completado:
-<span id="totalHabito">0</span></p>
-
-<p>Porcentaje:
-<span id="porcentajeHabito">0%</span></p>
-
-<p>Mejor racha:
-<span id="rachaHabito">0</span></p>
-
-</div>
-
-</section>
-
-<!-- ================= HABITOS ================= -->
-
-<section id="habitos" class="pagina oculto">
-
-<h1>Administrar hábitos</h1>
-
-<input
-type="text"
-id="nuevoHabito"
-placeholder="Nuevo hábito">
 
 
-<div class="dias-selector" id="diasSelector">
-  <button type="button" class="dia-btn" data-dia="todos">Todos</button>
-  <button type="button" class="dia-btn" data-dia="lunes">Lun</button>
-  <button type="button" class="dia-btn" data-dia="martes">Mar</button>
-  <button type="button" class="dia-btn" data-dia="miercoles">Mié</button>
-  <button type="button" class="dia-btn" data-dia="jueves">Jue</button>
-  <button type="button" class="dia-btn" data-dia="viernes">Vie</button>
-  <button type="button" class="dia-btn" data-dia="sabado">Sáb</button>
-  <button type="button" class="dia-btn" data-dia="domingo">Dom</button>
-</div>
+<!-- ==================================================
+     CALENDARIO
+================================================== -->
+
+<section
+    id="calendario"
+    class="pagina oculto">
+
+    <h1>
+        Calendario
+    </h1>
 
 
-<button id="agregarHabito">
-Agregar hábito
-</button>
+    <div class="calendar-box">
 
-<hr>
+        <div class="calendar-controls">
 
-<div id="listaEditar"></div>
+            <button
+                class="round-btn"
+                onclick="mesAnterior()">
+
+                ‹
+
+            </button>
+
+
+            <h2 id="mesActual"></h2>
+
+
+            <button
+                class="round-btn"
+                onclick="mesSiguiente()">
+
+                ›
+
+            </button>
+
+        </div>
+
+
+        <div id="calendar"></div>
+
+    </div>
 
 </section>
 
-<!-- =============== CONFIGURACION ================= -->
+
+
+<!-- ==================================================
+     ESTADÍSTICAS
+================================================== -->
+
+<section
+    id="estadisticas"
+    class="pagina oculto">
+
+    <h1>
+        Estadísticas
+    </h1>
+
+
+    <!-- FILTROS -->
+
+    <div class="tabs">
+
+        <button
+            class="active"
+            data-tipo="semana">
+
+            Semana
+
+        </button>
+
+
+        <button
+            data-tipo="mes">
+
+            Mes
+
+        </button>
+
+
+        <button
+            data-tipo="año">
+
+            Año
+
+        </button>
+
+    </div>
+
+
+    <!-- GRÁFICA GENERAL -->
+
+    <div class="chart-container">
+
+        <canvas
+            id="graficaGeneral">
+        </canvas>
+
+    </div>
+
+
+    <div class="stats-grid">
+
+
+        <!-- ESTADÍSTICAS POR ACTIVIDAD -->
+
+        <div class="chart-container">
+
+            <h2>
+                Por actividad
+            </h2>
+
+
+            <select id="selectorHabito">
+
+                <option value="">
+                    Selecciona una actividad
+                </option>
+
+            </select>
+
+
+            <canvas
+                id="graficaHabito">
+            </canvas>
+
+
+            <div class="estadisticasHabito">
+
+                <p>
+                    Completado
+
+                    <span id="totalHabito">
+                        0
+                    </span>
+                </p>
+
+
+                <p>
+                    Porcentaje
+
+                    <span id="porcentajeHabito">
+                        0%
+                    </span>
+                </p>
+
+
+                <p>
+                    Mejor racha
+
+                    <span id="rachaHabito">
+                        0
+                    </span>
+                </p>
+
+            </div>
+
+        </div>
+
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     ADMINISTRAR ACTIVIDADES
+================================================== -->
+
+<section
+    id="habitos"
+    class="pagina oculto">
+
+    <h1>
+        Administrar actividades
+    </h1>
+
+
+    <div class="form-card">
+
+
+        <!-- NOMBRE -->
+
+        <input
+            id="nuevoHabito"
+            type="text"
+            placeholder="Nueva actividad">
+
+
+        <!-- TEMPORIZADOR + HORA MÁXIMA -->
+
+        <div class="form-grid">
+
+
+            <div>
+
+                <label>
+                    Temporizador (minutos)
+                </label>
+
+                <input
+                    id="nuevaDuracion"
+                    type="number"
+                    min="0"
+                    value="0">
+
+            </div>
+
+
+            <div>
+
+                <label>
+                    Hora máxima
+                </label>
+
+                <input
+                    id="nuevaHoraMax"
+                    type="time">
+
+            </div>
+
+        </div>
+
+
+        <p class="config-desc">
+
+            0 minutos = actividad normal.
+            Si pones una duración, aparecerá un temporizador.
+
+        </p>
+
+
+        <!-- DÍAS -->
+
+        <div
+            class="dias-selector"
+            id="diasSelector">
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="todos">
+
+                Todos
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="lunes">
+
+                Lun
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="martes">
+
+                Mar
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="miercoles">
+
+                Mié
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="jueves">
+
+                Jue
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="viernes">
+
+                Vie
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="sabado">
+
+                Sáb
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn"
+                data-dia="domingo">
+
+                Dom
+
+            </button>
+
+        </div>
+
+
+        <button
+            id="agregarHabito"
+            class="primary">
+
+            Agregar actividad
+
+        </button>
+
+    </div>
+
+
+    <h2>
+        Tus actividades
+    </h2>
+
+
+    <div id="listaEditar"></div>
+
+</section>
+
+
+
+<!-- ==================================================
+     TIENDA
+================================================== -->
+
+<section
+    id="tienda"
+    class="pagina oculto">
+
+    <h1>
+        🛒 Tienda
+    </h1>
+
+
+    <!-- CARTERA -->
+
+    <div class="wallet">
+
+
+        <div>
+
+            <span>
+                Monedas
+            </span>
+
+            <strong id="monedas">
+                0
+            </strong>
+
+            $
+
+        </div>
+
+
+        <div>
+
+            <span>
+                Vidas
+            </span>
+
+            <strong id="vidas">
+                3
+            </strong>
+
+            ❤️
+
+        </div>
+
+
+        <div>
+
+            <span>
+                Protectores
+            </span>
+
+            <strong id="protectores">
+                0
+            </strong>
+
+            🛡️
+
+        </div>
+
+
+        <div>
+
+            <span>
+                Pases
+            </span>
+
+            <strong id="pases">
+                0
+            </strong>
+
+            🎫
+
+        </div>
+
+    </div>
+
+
+    <!-- PRODUCTOS -->
+
+    <div
+        class="store-grid"
+        id="tiendaItems">
+
+    </div>
+
+
+    <div class="info-card">
+
+        <strong>
+            ¿Cómo ganas monedas?
+        </strong>
+
+        <p>
+
+            Guardar un día da monedas.
+            Mejor desempeño y días perfectos
+            dan recompensas mayores.
+
+        </p>
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     RETOS
+================================================== -->
+
+<section
+    id="retos"
+    class="pagina oculto">
+
+    <div class="section-title-row">
+        <div>
+            <h1>🏆 Retos</h1>
+            <p class="config-desc">Crea retos propios mensuales o anuales y lleva su progreso.</p>
+        </div>
+        <button id="nuevoRetoBtn" class="primary">+ Crear reto</button>
+    </div>
+
+    <div id="retoForm" class="form-card oculto reto-form">
+        <h2 id="retoFormTitulo">Crear reto</h2>
+        <div class="form-grid">
+            <div>
+                <label for="retoNombre">Nombre</label>
+                <input id="retoNombre" type="text" maxlength="80" placeholder="Ej. Entrenar 20 veces">
+            </div>
+            <div>
+                <label for="retoTipo">Tipo</label>
+                <select id="retoTipo">
+                    <option value="mensual">Mensual</option>
+                    <option value="anual">Anual</option>
+                </select>
+            </div>
+        </div>
+        <label for="retoDescripcion">Descripción</label>
+        <textarea id="retoDescripcion" rows="2" maxlength="180" placeholder="¿Qué quieres conseguir?"></textarea>
+        <div class="form-grid">
+            <div>
+                <label for="retoMeta">Meta</label>
+                <input id="retoMeta" type="number" min="1" step="1" placeholder="20">
+            </div>
+            <div>
+                <label for="retoUnidad">Unidad</label>
+                <input id="retoUnidad" type="text" maxlength="30" placeholder="entrenamientos">
+            </div>
+            <div>
+                <label for="retoRecompensa">Recompensa $</label>
+                <input id="retoRecompensa" type="number" min="0" step="10" value="100">
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button id="cancelarReto" class="secondary">Cancelar</button>
+            <button id="guardarReto" class="primary">Guardar reto</button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+
+
+        <!-- RETOS MENSUALES -->
+
+        <div class="chart-container">
+
+            <h2>
+                Retos mensuales
+            </h2>
+
+
+            <div id="retosMensuales"></div>
+
+        </div>
+
+
+        <!-- RETOS ANUALES -->
+
+        <div class="chart-container">
+
+            <h2>
+                Retos anuales
+            </h2>
+
+
+            <div id="retosAnuales"></div>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+
+<!-- ==================================================
+     TIEMPO EN PANTALLA
+================================================== -->
+
+<section
+    id="pantalla"
+    class="pagina oculto">
+
+    <h1>
+        📱 Tiempo en pantalla
+    </h1>
+
+
+    <div class="form-card">
+
+        <p class="config-desc">
+
+            La web no puede leer automáticamente
+            el Screen Time de tu teléfono.
+
+            Regístralo aquí y la app lo convierte
+            en estadísticas.
+
+        </p>
+
+
+        <div class="form-grid">
+
+
+            <div>
+
+                <label>
+                    Aplicación
+                </label>
+
+                <input
+                    id="screenApp"
+                    type="text"
+                    placeholder="Instagram">
+
+            </div>
+
+
+            <div>
+
+                <label>
+                    Minutos usados
+                </label>
+
+                <input
+                    id="screenMinutes"
+                    type="number"
+                    min="1"
+                    placeholder="60">
+
+            </div>
+
+        </div>
+
+
+        <button
+            id="guardarPantalla"
+            class="primary">
+
+            Registrar tiempo
+
+        </button>
+
+    </div>
+
+
+    <div class="screen-summary">
+
+        <span>
+            Total de hoy
+        </span>
+
+
+        <strong id="screenTotal">
+            0m
+        </strong>
+
+    </div>
+
+
+    <div id="screenList"></div>
+
+</section>
+
+
+
+<!-- ==================================================
+     CONFIGURACIÓN
+================================================== -->
 
 <section id="configuracion" class="pagina oculto">
 
-  <h1>Configuración</h1>
+    <h1>Configuración</h1>
 
-  <!-- Nombre / saludo -->
-  <div class="config-section">
-    <h2>Tu nombre</h2>
-    <p class="config-desc">Se usa en el saludo de la pantalla de inicio</p>
-    <input type="text" id="inputNombre" placeholder="Ej: Hector" maxlength="20">
-    <button type="button" id="guardarNombre">Guardar nombre</button>
-  </div>
+    <!-- ==================== CUENTA (al principio) ==================== -->
+    <div class="config-section">
+        <h2>Cuenta</h2>
 
-  <!-- Apariencia -->
-  <div class="config-section">
-    <h2>Apariencia</h2>
-    <p class="config-desc">Cambia entre modo oscuro y claro</p>
-    <button type="button" id="modo">Cambiar a modo claro/oscuro</button>
-  </div>
+        <p class="config-desc">
+            Inicia sesión con correo y contraseña para sincronizar tus datos entre dispositivos.
+        </p>
 
-  <!-- Racha -->
-  <div class="config-section">
-    <h2>Racha</h2>
-    <p class="config-desc">Porcentaje mínimo del día para sumar a la racha (por defecto 80%)</p>
-    <div class="opciones-racha">
-      <button type="button" class="btn-racha" data-min="80">80%</button>
-      <button type="button" class="btn-racha" data-min="100">100%</button>
-    </div>
-  </div>
-
-  <!-- Notificaciones -->
-
-  <div class="config-section">
-    <h2>Recordatorio diario</h2>
-    <p class="config-desc">Te avisa a la hora que elijas para marcar tus hábitos</p>
-
-    <label style="font-size:14px; opacity:0.8">Hora</label>
-    <input type="time" id="horaRecordatorio" class="btn-secundario" value="21:00" style="margin:8px 0 12px; display:block;">
-
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-        <button type="button" id="activarNotis" class="btn-primario">Activar recordatorios</button>
-        <button type="button" id="probarNoti" class="btn-secundario">Probar notificación</button>
+        <div class="button-row" style="margin-top: 12px;">
+            <button id="btnLoginConfig" class="primary">
+                Iniciar sesión
+            </button>
+        </div>
     </div>
 
-    <p id="estadoNotis" class="config-desc" style="margin-top:12px; margin-bottom:0;"></p>
+
+    <!-- APARIENCIA -->
+    <div class="config-section">
+        <h2>Apariencia</h2>
+        <button id="modo" class="secondary">
+            Cambiar modo claro/oscuro
+        </button>
     </div>
 
-  <!-- Datos -->
-  <div class="config-section">
-    <h2>Datos</h2>
-    <p class="config-desc">Respalda o restaura tu información</p>
-    <button type="button" id="exportar">Exportar respaldo</button>
-    <button type="button" id="importar">Importar respaldo</button>
-    <input type="file" id="archivoImportar" accept=".json" hidden>
-  </div>
-  
-  <!-- Zona de peligro -->
-  <div class="config-section">
-    <h2>Zona de peligro</h2>
-    <p class="config-desc">Esta acción borra todos tus hábitos e historial</p>
-    <button type="button" id="reiniciar">Borrar todos los datos</button>
-  </div>
 
-  <!-- Acerca de -->
-  <div class="config-section">
-    <h2>Acerca de</h2>
-    <p class="config-desc">
-      Habit Tracker Pro v1.0<br>
-      Tus datos se guardan solo en este dispositivo.
-    </p>
-  </div>
+    <!-- RACHA -->
+    <div class="config-section">
+        <h2>Racha</h2>
+        <p class="config-desc">
+            Porcentaje mínimo efectivo para conservar la racha.
+        </p>
+        <div class="opciones-racha">
+            <button class="btn-racha" data-min="80">80%</button>
+            <button class="btn-racha" data-min="100">100%</button>
+        </div>
+    </div>
+
+
+    <!-- CASTIGO -->
+    <div class="config-section">
+        <h2>Castigo por muerte ☠️</h2>
+        <p class="config-desc">
+            Cuando llegues a 0 vidas se activa este castigo.
+        </p>
+        <select id="configCastigo">
+            <option value="400 lagartijas">400 lagartijas</option>
+            <option value="200 sentadillas">200 sentadillas</option>
+            <option value="60 minutos de ejercicio">60 minutos de ejercicio</option>
+            <option value="1 hora sin redes sociales">1 hora sin redes sociales</option>
+        </select>
+    </div>
+
+
+    <!-- NOTIFICACIONES -->
+    <div class="config-section">
+        <h2>Recordatorio diario</h2>
+        <input id="horaRecordatorio" type="time" value="21:00">
+        <div class="button-row">
+            <button id="activarNotis" class="primary">Activar recordatorios</button>
+            <button id="probarNoti" class="secondary">Probar notificación</button>
+        </div>
+        <p id="estadoNotis" class="config-desc"></p>
+    </div>
+
+
+    <!-- DATOS -->
+    <div class="config-section">
+        <h2>Datos</h2>
+        <button id="exportar" class="primary">Exportar respaldo</button>
+        <button id="importar" class="secondary">Importar respaldo</button>
+        <input id="archivoImportar" type="file" accept=".json" hidden>
+        <button id="reiniciar" class="danger">Borrar todos los datos</button>
+    </div>
+
+    <div class="config-section">
+        <h2>Acerca de</h2>
+        <p class="config-desc">Habit Tracker Pro v2.1</p>
+        
+    </div>
 
 </section>
 
+</main>
 
-<!-- Toast container (si no lo tienes) -->
+
+
+<!-- ==================================================
+     TOASTS
+================================================== -->
+
 <div id="toast-container"></div>
 
-<!-- Modal detalle del día -->
-<div id="modalDetalle" class="modal oculto">
-  <div class="modal-contenido">
-    <div class="detalle-header">
-      <h3 id="detalleFecha">📅 Fecha</h3>
-      <button class="cerrar-modal" onclick="cerrarDetalle()">✕</button>
+
+
+<!-- ==================================================
+     MODAL: DETALLE DEL DÍA
+================================================== -->
+
+<div
+    id="modalDetalle"
+    class="modal oculto">
+
+
+    <div class="modal-content">
+
+
+        <div class="modal-head">
+
+            <h3 id="detalleFecha">
+                📅 Fecha
+            </h3>
+
+
+            <button
+                onclick="cerrarDetalle()">
+
+                ✕
+
+            </button>
+
+        </div>
+
+
+        <div
+            class="detail-percent"
+            id="detallePorcentaje">
+
+            0%
+
+        </div>
+
+
+        <div
+            id="detalleHabitos">
+        </div>
+
+
+        <div
+            id="detalleNota"
+            class="justification oculto">
+        </div>
+
     </div>
 
-    <div class="detalle-porcentaje">
-      <span id="detallePorcentaje">0%</span>
-    </div>
-
-    <div id="detalleHabitos" class="detalle-lista"></div>
-
-    <div id="detalleNota" class="detalle-nota oculto"></div>
-  </div>
 </div>
 
-<!-- Modal de confirmación -->
-<div id="modalConfirm" class="modal oculto">
-  <div class="modal-contenido">
-    <p id="modalConfirmTexto">¿Estás seguro?</p>
-    <div class="modal-botones">
-      <button id="modalCancelar" class="btn-secundario">Cancelar</button>
-      <button id="modalAceptar" class="btn-peligro">Aceptar</button>
+
+
+<!-- ==================================================
+     MODAL: CONFIRMAR
+================================================== -->
+
+<div
+    id="modalConfirm"
+    class="modal oculto">
+
+
+    <div class="modal-content">
+
+        <p id="modalConfirmTexto">
+            ¿Estás seguro?
+        </p>
+
+
+        <div class="modal-actions">
+
+            <button
+                id="modalCancelar"
+                class="secondary">
+
+                Cancelar
+
+            </button>
+
+
+            <button
+                id="modalAceptar"
+                class="danger">
+
+                Aceptar
+
+            </button>
+
+        </div>
+
     </div>
-  </div>
+
 </div>
 
-<div id="modalEditar" class="modal oculto">
-  <div class="modal-contenido">
-    <h3>Editar hábito</h3>
-    
-    <input type="text" id="editarNombre" placeholder="Nombre del hábito">
-    
-    <div class="dias-selector" id="editarDiasSelector">
-      <button type="button" class="dia-btn edit-dia" data-dia="todos">Todos</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="lunes">Lun</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="martes">Mar</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="miercoles">Mié</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="jueves">Jue</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="viernes">Vie</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="sabado">Sáb</button>
-      <button type="button" class="dia-btn edit-dia" data-dia="domingo">Dom</button>
+
+
+<!-- ==================================================
+     MODAL: EDITAR ACTIVIDAD
+================================================== -->
+
+<div
+    id="modalEditar"
+    class="modal oculto">
+
+
+    <div class="modal-content">
+
+        <h3>
+            Editar actividad
+        </h3>
+
+
+        <input
+            id="editarNombre"
+            type="text">
+
+
+        <div class="form-grid">
+
+
+            <div>
+
+                <label>
+                    Temporizador (min)
+                </label>
+
+
+                <input
+                    id="editarDuracion"
+                    type="number"
+                    min="0">
+
+            </div>
+
+
+            <div>
+
+                <label>
+                    Hora máxima
+                </label>
+
+
+                <input
+                    id="editarHoraMax"
+                    type="time">
+
+            </div>
+
+        </div>
+
+
+
+        <div class="dias-selector">
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="todos">
+
+                Todos
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="lunes">
+
+                Lun
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="martes">
+
+                Mar
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="miercoles">
+
+                Mié
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="jueves">
+
+                Jue
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="viernes">
+
+                Vie
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="sabado">
+
+                Sáb
+
+            </button>
+
+
+            <button
+                type="button"
+                class="dia-btn edit-dia"
+                data-dia="domingo">
+
+                Dom
+
+            </button>
+
+        </div>
+
+
+
+        <div class="modal-actions">
+
+
+            <button
+                id="cancelarEditar"
+                class="secondary">
+
+                Cancelar
+
+            </button>
+
+
+            <button
+                id="guardarEditar"
+                class="primary">
+
+                Guardar
+
+            </button>
+
+        </div>
+
     </div>
 
-    <div class="modal-botones">
-      <button type="button" id="cancelarEditar" class="btn-secundario">Cancelar</button>
-      <button type="button" id="guardarEditar" class="btn-primario">Guardar</button>
-    </div>
-  </div>
 </div>
 
-    <button type="button" id="btnIrArriba" title="Ir al menú">↑</button>
-    <script src="script.js"></script>
-    
+
+
+<!-- ==================================================
+     MODAL: JUSTIFICACIÓN
+================================================== -->
+
+<div
+    id="modalJustificacion"
+    class="modal oculto">
+
+
+    <div class="modal-content">
+
+        <h3 id="justificacionTitulo">
+            Justificar
+        </h3>
+
+
+        <p class="config-desc">
+
+            La justificación no suma al porcentaje
+            real, pero cuenta como actividad neutral
+            para proteger la racha.
+
+        </p>
+
+
+        <textarea
+            id="justificacionTexto"
+            rows="5"
+            placeholder="¿Por qué no pudiste hacerla?">
+        </textarea>
+
+
+        <div class="modal-actions">
+
+
+            <button
+                id="cancelarJustificacion"
+                class="secondary">
+
+                Cancelar
+
+            </button>
+
+
+            <button
+                id="guardarJustificacion"
+                class="primary">
+
+                Guardar justificación
+
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+
+<!-- ==================================================
+     MODAL: MUERTE
+================================================== -->
+
+<div
+    id="modalMuerte"
+    class="modal oculto">
+
+
+    <div class="modal-content death">
+
+
+        <div class="death-icon">
+            💀
+        </div>
+
+
+        <h2>
+            HAS MUERTO
+        </h2>
+
+
+        <p>
+            Te quedaste sin vidas.
+        </p>
+
+
+        <strong id="castigoTexto">
+            400 lagartijas
+        </strong>
+
+
+        <p class="config-desc">
+
+            Cumple el castigo para restaurar
+            tus vidas.
+
+        </p>
+
+
+        <button
+            id="cumplirCastigo"
+            class="primary big">
+
+            ☠️ Cumplir castigo
+
+        </button>
+
+    </div>
+
+</div>
+
+
+
+<!-- ==================================================
+     MODAL: LOGIN
+================================================== -->
+
+<div
+    id="modalLogin"
+    class="modal oculto">
+
+
+    <div class="modal-content">
+
+        <h3>
+            Iniciar sesión
+        </h3>
+
+
+        <p id="loginHelp" class="config-desc">
+            Crea una cuenta o entra con tu correo y contraseña. Tus datos se sincronizan en la nube.
+        </p>
+
+        <input
+            id="loginNombre"
+            type="text"
+            placeholder="Nombre (solo al registrarte)"
+            autocomplete="name">
+
+        <input
+            id="loginEmail"
+            type="email"
+            placeholder="Correo electrónico"
+            autocomplete="email">
+
+        <input
+            id="loginPassword"
+            type="password"
+            placeholder="Contraseña (mínimo 6 caracteres)"
+            autocomplete="current-password">
+
+        <div class="login-switch">
+            <button id="loginModeBtn" type="button" class="link-button">¿No tienes cuenta? Crear una</button>
+        </div>
+
+        <div class="modal-actions">
+            <button id="loginCancel" class="secondary">Cancelar</button>
+            <button id="loginSubmit" class="primary">Entrar</button>
+        </div>
+
+    </div>
+
+</div>
+
+<!-- Botón ir arriba (móvil) -->
+<button id="btnIrArriba" aria-label="Ir arriba" title="Ir arriba">
+    ↑
+</button>
+
+
+
+<!-- ==================================================
+     JAVASCRIPT
+================================================== -->
+
+<script src="script.js"></script>
+
 
 </body>
-
 </html>
