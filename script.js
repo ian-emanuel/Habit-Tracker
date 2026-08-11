@@ -3298,13 +3298,20 @@ function renderEditor() {
 
                     <small>
                         ${
-                            habit.dias.includes(
-                                "todos"
-                            )
+                            habit.dias.includes("todos")
                                 ? "Todos"
-                                : habit.dias.join(
-                                    ", "
-                                )
+                                : habit.dias.map(d => {
+                                    const abrev = {
+                                        lunes: "Lun",
+                                        martes: "Mar",
+                                        miercoles: "Mié",
+                                        jueves: "Jue",
+                                        viernes: "Vie",
+                                        sabado: "Sáb",
+                                        domingo: "Dom"
+                                    };
+                                    return abrev[d] || d;
+                                }).join(", ")
                         }
 
                         ·
