@@ -3313,21 +3313,8 @@ function renderEditor() {
                                     return abrev[d] || d;
                                 }).join(", ")
                         }
-
-                        ·
-
-                        ${
-                            habit.duracion
-                                ? `${habit.duracion} min`
-                                : "sin temporizador"
-                        }
-
-                        ${
-                            habit.horaMax
-                                ? ` · límite ${habit.horaMax}`
-                                : ""
-                        }
-
+                        ${habit.duracion ? ` · ${habit.duracion}m` : ""}
+                        ${habit.horaMax ? ` · ≤${habit.horaMax}` : ""}
                     </small>
 
                 </div>
